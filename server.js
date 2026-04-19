@@ -62,12 +62,18 @@ const notificationSchema = new mongoose.Schema({
 
 const Notification = mongoose.model('Notification', notificationSchema);
 
-// ==================== SEED FUNCTION ====================
-async function seedDatabase() {
+// ==================== FORCE CLEAR ALL USERS ON START ====================
+async function forceClearUsers() {
     try {
-        const userCount = await User.countDocuments();
-        if (userCount > 0) return;
+        await User.deleteMany({});
+        await Notification.deleteMany({});
+        console.log('✅ ALL USERS CLEARED - Fresh database!');
+    } catch (e) { console.error('Clear users error:', e.message); }
+}
 
+// ==================== SEED QUESTIONS ONLY ====================
+async function seedQuestions() {
+    try {
         const courses = [
             { code: 'CHM 101', name: 'General Chemistry I', faculty: 'Technology', level: '100', semester: 'first' },
             { code: 'CHM 102', name: 'General Chemistry II', faculty: 'Technology', level: '100', semester: 'second' },
@@ -105,7 +111,7 @@ async function seedDatabase() {
                 ]);
             }
         }
-        console.log('✅ Database seeded with courses');
+        console.log('✅ Questions seeded');
     } catch (e) { console.error('Seed error:', e.message); }
 }
 
@@ -335,38 +341,44 @@ app.post('/api/tests/session/submit', async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// FREE AI - No API Key Required!
 app.post('/api/ai/chat', async (req, res) => {
     try {
         const { message } = req.body;
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (!apiKey) return res.json({ reply: 'AI not configured. Add GEMINI_API_KEY in Render.' });
+        const lowerMsg = message.toLowerCase();
         
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: [{ parts: [{ text: `You are ExamPlugAI by Francistech. User: ${message}` }] }] })
-        });
+        const responses = {
+            hello: "Hello! I'm ExamPlugAI by Francistech. How can I help with your studies today?",
+            hi: "Hi there! Ready to ace your exams? Ask me anything about your courses!",
+            help: "I can help with: study tips, course explanations, exam strategies, and answering subject questions. What do you need?",
+            exam: "For exams: Practice past questions, manage your time, read questions carefully, and stay calm. You've got this!",
+            study: "Effective study tips: Use active recall, spaced repetition, teach others, take breaks, and sleep well before exams.",
+            chemistry: "Chemistry tip: Understand the periodic table trends, practice balancing equations, and memorize key formulas.",
+            math: "Math tip: Practice problems daily, understand concepts not just memorization, and show all your work.",
+            physics: "Physics tip: Draw diagrams, understand units, and practice applying formulas to different scenarios.",
+            english: "English tip: Read widely, practice writing essays, and learn new vocabulary daily.",
+            gst: "GST (General Studies): Focus on current affairs, Nigerian history, and communication skills.",
+            thanks: "You're welcome! Keep studying hard. Excellence is a habit!",
+            bye: "Goodbye! Remember: consistent practice leads to success. See you next time!"
+        };
         
-        const data = await response.json();
-        if (!response.ok) return res.json({ reply: `AI Error: ${data.error?.message || 'Unknown'}` });
+        let reply = "I'm ExamPlugAI by Francistech! I can help with study tips, exam strategies, Chemistry, Math, Physics, English, and GST. What would you like to learn about?";
         
-        const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response.';
+        for (const [key, value] of Object.entries(responses)) {
+            if (lowerMsg.includes(key)) { reply = value; break; }
+        }
+        
         res.json({ reply });
-    } catch (e) { res.json({ reply: `Error: ${e.message}` }); }
+    } catch (e) { res.json({ reply: "I'm here to help! Ask me anything about your studies." }); }
 });
-// TEMPORARY - Clear all users (REMOVE AFTER USE)
-app.get('/api/admin/clear-users', async (req, res) => {
-    try {
-        await User.deleteMany({});
-        await Notification.deleteMany({});
-        res.json({ success: true, message: 'All users cleared. Database is fresh!' });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
+
 // ==================== START SERVER ====================
 const PORT = process.env.PORT || 5000;
 mongoose.connect(process.env.MONGODB_URI)
     .then(async () => {
         console.log('✅ MongoDB connected');
-        await seedDatabase();
+        await forceClearUsers(); // FORCE CLEAR ALL USERS
+        await seedQuestions();
         app.listen(PORT, () => console.log(`🚀 Server on ${PORT}`));
     })
     .catch(e => console.error('❌ MongoDB error:', e.message));
