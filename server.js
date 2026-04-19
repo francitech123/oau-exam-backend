@@ -116,7 +116,15 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // Get courses
+app.post('/api/seed', async (req, res) => {
+    await seedDatabase();
+    res.json({ success: true, message: 'Database seeded successfully!' });
+});
 app.get('/api/courses', async (req, res) => {
+app.get('/api/seed', async (req, res) => {
+    await seedDatabase();
+    res.json({ success: true, message: 'Database seeded successfully!' });
+});
     const courses = {
         Technology: {
             first: [
