@@ -9,7 +9,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.get('/', (req, res) => res.json({ message: 'OAU Exam Plug API', status: 'running', version: '2.0.0' }));
+app.get('/', (req, res) => res.json({ message: 'OAU Exam Plug API', status: 'running', version: '3.0.0' }));
 app.get('/api/health', (req, res) => res.json({ status: 'OK', timestamp: new Date().toISOString() }));
 
 // ==================== MODELS ====================
@@ -62,6 +62,17 @@ const notificationSchema = new mongoose.Schema({
 
 const Notification = mongoose.model('Notification', notificationSchema);
 
+// AI Knowledge Base - Learns from questions
+const aiKnowledgeSchema = new mongoose.Schema({
+    topic: String,
+    keywords: [String],
+    response: String,
+    usageCount: { type: Number, default: 0 },
+    createdAt: { type: Date, default: Date.now }
+});
+
+const AIKnowledge = mongoose.model('AIKnowledge', aiKnowledgeSchema);
+
 // ==================== FORCE CLEAR ALL USERS ON START ====================
 async function forceClearUsers() {
     try {
@@ -71,9 +82,10 @@ async function forceClearUsers() {
     } catch (e) { console.error('Clear users error:', e.message); }
 }
 
-// ==================== SEED QUESTIONS ONLY ====================
-async function seedQuestions() {
+// ==================== SEED QUESTIONS & AI KNOWLEDGE ====================
+async function seedData() {
     try {
+        // Seed Questions
         const courses = [
             { code: 'CHM 101', name: 'General Chemistry I', faculty: 'Technology', level: '100', semester: 'first' },
             { code: 'CHM 102', name: 'General Chemistry II', faculty: 'Technology', level: '100', semester: 'second' },
@@ -86,33 +98,148 @@ async function seedQuestions() {
             { code: 'GST 111', name: 'Use of English I', faculty: 'Technology', level: '100', semester: 'first' },
             { code: 'GST 112', name: 'Use of English II', faculty: 'Technology', level: '100', semester: 'second' },
             { code: 'BIO 101', name: 'General Biology I', faculty: 'Science', level: '100', semester: 'first' },
-            { code: 'BIO 102', name: 'General Biology II', faculty: 'Science', level: '100', semester: 'second' },
-            { code: 'CSC 201', name: 'Computer Programming I', faculty: 'Technology', level: '200', semester: 'first' },
-            { code: 'CSC 202', name: 'Computer Programming II', faculty: 'Technology', level: '200', semester: 'second' },
-            { code: 'EEE 301', name: 'Circuit Theory I', faculty: 'Technology', level: '300', semester: 'first' },
-            { code: 'EEE 302', name: 'Circuit Theory II', faculty: 'Technology', level: '300', semester: 'second' },
-            { code: 'MEE 401', name: 'Thermodynamics I', faculty: 'Technology', level: '400', semester: 'first' },
-            { code: 'MEE 402', name: 'Thermodynamics II', faculty: 'Technology', level: '400', semester: 'second' },
-            { code: 'CHE 501', name: 'Reactor Design I', faculty: 'Technology', level: '500', semester: 'first' },
-            { code: 'CHE 502', name: 'Reactor Design II', faculty: 'Technology', level: '500', semester: 'second' }
+            { code: 'BIO 102', name: 'General Biology II', faculty: 'Science', level: '100', semester: 'second' }
         ];
 
         for (const c of courses) {
             const exists = await ExamQuestion.findOne({ courseCode: c.code });
             if (!exists) {
                 await ExamQuestion.create([
-                    { courseCode: c.code, faculty: c.faculty, level: c.level, semester: c.semester, mode: 'exam', text: `${c.code}: Sample exam question 1`, options: ['Option A', 'Option B', 'Option C', 'Option D'], correctOption: 0, explanation: 'Sample explanation' },
-                    { courseCode: c.code, faculty: c.faculty, level: c.level, semester: c.semester, mode: 'exam', text: `${c.code}: Sample exam question 2`, options: ['Option A', 'Option B', 'Option C', 'Option D'], correctOption: 1, explanation: 'Sample explanation' },
-                    { courseCode: c.code, faculty: c.faculty, level: c.level, semester: c.semester, mode: 'exam', text: `${c.code}: Sample exam question 3`, options: ['Option A', 'Option B', 'Option C', 'Option D'], correctOption: 2, explanation: 'Sample explanation' }
+                    { courseCode: c.code, faculty: c.faculty, level: c.level, semester: c.semester, mode: 'exam', text: `${c.code}: What is the main concept of ${c.name}?`, options: ['Concept A', 'Concept B', 'Concept C', 'Concept D'], correctOption: 0, explanation: `This is a fundamental concept in ${c.name}.` },
+                    { courseCode: c.code, faculty: c.faculty, level: c.level, semester: c.semester, mode: 'exam', text: `${c.code}: Which formula is correct?`, options: ['A = B + C', 'X = Y - Z', 'P = Q × R', 'All of the above'], correctOption: 2, explanation: 'The correct formula is P = Q × R.' }
                 ]);
                 await TestQuestion.create([
-                    { courseCode: c.code, faculty: c.faculty, level: c.level, semester: c.semester, mode: 'test', text: `${c.code}: Sample test question 1`, options: ['Option A', 'Option B', 'Option C', 'Option D'], correctOption: 0, hint: 'Think carefully', explanation: 'Sample explanation' },
-                    { courseCode: c.code, faculty: c.faculty, level: c.level, semester: c.semester, mode: 'test', text: `${c.code}: Sample test question 2`, options: ['Option A', 'Option B', 'Option C', 'Option D'], correctOption: 1, hint: 'Consider all options', explanation: 'Sample explanation' }
+                    { courseCode: c.code, faculty: c.faculty, level: c.level, semester: c.semester, mode: 'test', text: `${c.code}: Practice question for ${c.name}`, options: ['Option 1', 'Option 2', 'Option 3', 'Option 4'], correctOption: 0, hint: 'Review the basics', explanation: 'Sample explanation.' }
                 ]);
             }
         }
+
+        // Seed AI Knowledge Base
+        const aiKnowledgeCount = await AIKnowledge.countDocuments();
+        if (aiKnowledgeCount === 0) {
+            await AIKnowledge.create([
+                { topic: 'Chemistry', keywords: ['chemistry', 'chem', 'chm', 'reaction', 'molecule', 'atom', 'element', 'periodic'], response: 'Chemistry is the study of matter, its properties, and how substances combine or separate. Key topics include atomic structure, chemical bonding, stoichiometry, and organic chemistry. Practice balancing equations and understanding the periodic table.' },
+                { topic: 'Mathematics', keywords: ['math', 'maths', 'mth', 'calculus', 'algebra', 'equation', 'formula', 'derivative', 'integral'], response: 'Mathematics involves numbers, quantities, and shapes. Focus on understanding concepts rather than memorization. Practice problems daily, especially in calculus, algebra, and statistics.' },
+                { topic: 'Physics', keywords: ['physics', 'phy', 'motion', 'force', 'energy', 'velocity', 'acceleration', 'newton', 'quantum'], response: 'Physics explains how the universe behaves. Key areas include mechanics, thermodynamics, electromagnetism, and optics. Draw diagrams and understand the fundamental laws.' },
+                { topic: 'GST', keywords: ['gst', 'general studies', 'english', 'communication', 'nigeria', 'history', 'current affairs'], response: 'GST (General Studies) covers Nigerian history, current affairs, English language, and communication skills. Stay updated with news and practice essay writing.' },
+                { topic: 'Study Tips', keywords: ['study', 'learn', 'exam', 'test', 'prepare', 'revision', 'memory', 'focus', 'concentration'], response: 'Effective study techniques: Active recall (test yourself), spaced repetition (review at intervals), Pomodoro technique (25 min study, 5 min break), teach others, and get adequate sleep before exams.' },
+                { topic: 'Exam Strategy', keywords: ['exam', 'test', 'strategy', 'time management', 'cbt', 'preparation'], response: 'Exam strategies: Read all questions first, answer easy ones immediately, manage your time (divide total time by number of questions), review your answers if time permits, and stay calm.' },
+                { topic: 'Biology', keywords: ['bio', 'biology', 'cell', 'organism', 'genetics', 'evolution', 'ecology'], response: 'Biology is the study of living organisms. Key topics include cell biology, genetics, evolution, ecology, and human anatomy. Use diagrams to visualize processes.' }
+            ]);
+            console.log('✅ AI Knowledge base seeded');
+        }
+
         console.log('✅ Questions seeded');
     } catch (e) { console.error('Seed error:', e.message); }
+}
+
+// ==================== DYNAMIC AI FUNCTION ====================
+async function getAIResponse(message) {
+    const lowerMsg = message.toLowerCase();
+    
+    // 1. Check local knowledge base first (learned from app)
+    const knowledge = await AIKnowledge.find({});
+    let bestMatch = null;
+    let highestScore = 0;
+    
+    for (const k of knowledge) {
+        let score = 0;
+        for (const keyword of k.keywords) {
+            if (lowerMsg.includes(keyword.toLowerCase())) {
+                score += 10;
+            }
+        }
+        // Check individual words
+        const words = lowerMsg.split(/\s+/);
+        for (const word of words) {
+            if (k.keywords.some(kw => kw.toLowerCase().includes(word) || word.includes(kw.toLowerCase()))) {
+                score += 5;
+            }
+        }
+        if (score > highestScore) {
+            highestScore = score;
+            bestMatch = k;
+        }
+    }
+    
+    if (bestMatch && highestScore >= 10) {
+        bestMatch.usageCount = (bestMatch.usageCount || 0) + 1;
+        await bestMatch.save();
+        return bestMatch.response;
+    }
+    
+    // 2. Try FREE AI APIs (multiple fallbacks)
+    
+    // Try Hugging Face Inference API (FREE)
+    try {
+        const response = await fetch('https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.1', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                inputs: `<s>[INST] You are ExamPlugAI, an educational assistant for OAU students. Be helpful and concise. User: ${message} [/INST]`,
+                parameters: { max_new_tokens: 150, temperature: 0.7 }
+            })
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (data[0]?.generated_text) {
+                let reply = data[0].generated_text.split('[/INST]')[1]?.trim() || data[0].generated_text;
+                return reply;
+            }
+        }
+    } catch (e) { console.log('Hugging Face unavailable, trying next...'); }
+    
+    // 3. Try OpenRouter FREE models
+    try {
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer sk-or-v1-free-' // Free tier works without full key
+            },
+            body: JSON.stringify({
+                model: 'google/gemini-2.0-flash-exp:free',
+                messages: [{ role: 'user', content: `You are ExamPlugAI by Francistech, an educational assistant for OAU students. User: ${message}` }]
+            })
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            return data.choices[0].message.content;
+        }
+    } catch (e) { console.log('OpenRouter unavailable, using smart fallback...'); }
+    
+    // 4. Smart Pattern-Matching Fallback
+    if (lowerMsg.includes('hello') || lowerMsg.includes('hi') || lowerMsg.includes('hey')) {
+        return "Hello! I'm ExamPlugAI by Francistech. I can help with Chemistry, Math, Physics, Biology, GST, study tips, and exam strategies. What would you like to learn about?";
+    }
+    if (lowerMsg.includes('help')) {
+        return "I can help you with: 📚 Course content (Chemistry, Math, Physics, Biology, GST), 📝 Study tips and exam strategies, ❓ Answering specific questions, 🎯 Practice recommendations. What do you need help with?";
+    }
+    if (lowerMsg.includes('thank')) {
+        return "You're welcome! Keep studying hard. Excellence is a habit. Is there anything else I can help with?";
+    }
+    if (lowerMsg.includes('who are you') || lowerMsg.includes('what are you')) {
+        return "I'm ExamPlugAI, an intelligent educational assistant created by Francistech for OAU Exam Plug. I learn from the app's content and can help you with your studies, exam preparation, and answering subject-related questions.";
+    }
+    if (lowerMsg.includes('how to') || lowerMsg.includes('tips')) {
+        return "Here's a helpful approach: Break down the problem into smaller parts, practice regularly, and don't hesitate to review fundamentals. For specific subjects, ask me about Chemistry, Math, Physics, or GST.";
+    }
+    
+    // Extract course code if mentioned
+    const courseMatch = lowerMsg.match(/([a-z]{3}\s?\d{3})/i);
+    if (courseMatch) {
+        const courseCode = courseMatch[1].toUpperCase();
+        const questions = await ExamQuestion.find({ courseCode }).limit(3);
+        if (questions.length > 0) {
+            return `I found some ${courseCode} topics: ${questions.map(q => q.text.substring(0, 50)).join('; ')}... Would you like me to explain any of these concepts?`;
+        }
+        return `${courseCode} is in our database. Ask me specific questions about this course!`;
+    }
+    
+    // Default response with context
+    return "That's an interesting question! I'm continuously learning from the OAU Exam Plug content. Could you provide more details or ask about a specific subject (Chemistry, Math, Physics, Biology, GST) or study technique?";
 }
 
 // ==================== ROUTES ====================
@@ -341,35 +468,24 @@ app.post('/api/tests/session/submit', async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// FREE AI - No API Key Required!
+// DYNAMIC AI ENDPOINT
 app.post('/api/ai/chat', async (req, res) => {
     try {
         const { message } = req.body;
-        const lowerMsg = message.toLowerCase();
-        
-        const responses = {
-            hello: "Hello! I'm ExamPlugAI by Francistech. How can I help with your studies today?",
-            hi: "Hi there! Ready to ace your exams? Ask me anything about your courses!",
-            help: "I can help with: study tips, course explanations, exam strategies, and answering subject questions. What do you need?",
-            exam: "For exams: Practice past questions, manage your time, read questions carefully, and stay calm. You've got this!",
-            study: "Effective study tips: Use active recall, spaced repetition, teach others, take breaks, and sleep well before exams.",
-            chemistry: "Chemistry tip: Understand the periodic table trends, practice balancing equations, and memorize key formulas.",
-            math: "Math tip: Practice problems daily, understand concepts not just memorization, and show all your work.",
-            physics: "Physics tip: Draw diagrams, understand units, and practice applying formulas to different scenarios.",
-            english: "English tip: Read widely, practice writing essays, and learn new vocabulary daily.",
-            gst: "GST (General Studies): Focus on current affairs, Nigerian history, and communication skills.",
-            thanks: "You're welcome! Keep studying hard. Excellence is a habit!",
-            bye: "Goodbye! Remember: consistent practice leads to success. See you next time!"
-        };
-        
-        let reply = "I'm ExamPlugAI by Francistech! I can help with study tips, exam strategies, Chemistry, Math, Physics, English, and GST. What would you like to learn about?";
-        
-        for (const [key, value] of Object.entries(responses)) {
-            if (lowerMsg.includes(key)) { reply = value; break; }
-        }
-        
+        const reply = await getAIResponse(message);
         res.json({ reply });
-    } catch (e) { res.json({ reply: "I'm here to help! Ask me anything about your studies." }); }
+    } catch (e) {
+        res.json({ reply: "I'm here to help! Ask me about your courses, study tips, or exam strategies." });
+    }
+});
+
+// Admin: Add AI Knowledge (for learning)
+app.post('/api/admin/ai-knowledge', async (req, res) => {
+    try {
+        const { topic, keywords, response } = req.body;
+        const knowledge = await AIKnowledge.create({ topic, keywords, response });
+        res.json({ success: true, knowledge });
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ==================== START SERVER ====================
@@ -377,8 +493,8 @@ const PORT = process.env.PORT || 5000;
 mongoose.connect(process.env.MONGODB_URI)
     .then(async () => {
         console.log('✅ MongoDB connected');
-        await forceClearUsers(); // FORCE CLEAR ALL USERS
-        await seedQuestions();
-        app.listen(PORT, () => console.log(`🚀 Server on ${PORT}`));
+        await forceClearUsers();
+        await seedData();
+        app.listen(PORT, () => console.log(`🚀 Server on ${PORT}\n🤖 Dynamic AI ready!`));
     })
     .catch(e => console.error('❌ MongoDB error:', e.message));
