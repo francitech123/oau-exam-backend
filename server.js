@@ -450,7 +450,7 @@ app.post('/api/tests/session/submit', async (req, res) => {
 app.post('/api/ai/chat', async (req, res) => {
     try {
         const { message } = req.body;
-        const apiKey = process.env.GEMINI_API_KEY;
+        const AIzaSyB-XhU1NuMv-g17p8TEZ1znwIDFxB568RwAIzaSyB-XhU1NuMv-g17p8TEZ1znwIDFxB568Rw = process.env.GEMINI_API_KEY;
         
         if (!apiKey) {
             console.error('❌ GEMINI_API_KEY not configured in environment');
@@ -459,7 +459,7 @@ app.post('/api/ai/chat', async (req, res) => {
         
         console.log('🤖 AI Request:', message.substring(0, 50));
         
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${AIzaSyB-XhU1NuMv-g17p8TEZ1znwIDFxB568Rw}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
