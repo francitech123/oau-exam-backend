@@ -353,7 +353,14 @@ app.post('/api/ai/chat', async (req, res) => {
         res.json({ reply });
     } catch (e) { res.json({ reply: `Error: ${e.message}` }); }
 });
-
+// TEMPORARY - Clear all users (REMOVE AFTER USE)
+app.get('/api/admin/clear-users', async (req, res) => {
+    try {
+        await User.deleteMany({});
+        await Notification.deleteMany({});
+        res.json({ success: true, message: 'All users cleared. Database is fresh!' });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
 // ==================== START SERVER ====================
 const PORT = process.env.PORT || 5000;
 mongoose.connect(process.env.MONGODB_URI)
