@@ -1,6 +1,6 @@
 {
   "name": "oau-exam-backend",
-  "version": "1.0.0",
+  "version": "4.0.0",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -11,6 +11,11 @@
     "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.2",
     "cors": "^2.8.5",
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.3.1",
+    "helmet": "^7.1.0",
+    "express-rate-limit": "^7.1.5",
+    "express-mongo-sanitize": "^2.2.0",
+    "xss-clean": "^0.1.4",
+    "hpp": "^0.2.3"
   }
 }
