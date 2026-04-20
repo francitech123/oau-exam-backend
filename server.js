@@ -9,7 +9,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.get('/', (req, res) => res.json({ message: 'OAU Exam Plug API', status: 'running', version: '3.0.0' }));
+app.get('/', (req, res) => res.json({ message: 'OAU Exam Plug API', status: 'running', version: '4.0.0' }));
 app.get('/api/health', (req, res) => res.json({ status: 'OK', timestamp: new Date().toISOString() }));
 
 // ==================== 14 FACULTIES ====================
@@ -112,19 +112,26 @@ const COURSES_100 = {
 
 const COURSE_NAMES = {
     'GST 111': 'Use of English I', 'GST 112': 'Use of English II',
-    'AGR 101': 'Intro to Agriculture', 'AGR 102': 'Principles of Agriculture',
-    'ENG 101': 'Intro to Literature', 'ENG 102': 'Advanced Literature',
+    'AGR 101': 'Intro to Agriculture', 'AGR 102': 'Principles of Agriculture', 'AGR 103': 'Soil Science', 'AGR 104': 'Crop Production',
+    'ENG 101': 'Intro to Literature', 'ENG 102': 'Advanced Literature', 'PHL 101': 'Intro to Philosophy', 'PHL 102': 'Logic',
     'JIL 101': 'Legal Methods', 'JIL 102': 'Nigerian Legal System',
     'BIO 101': 'General Biology I', 'BIO 102': 'General Biology II',
     'CHM 101': 'General Chemistry I', 'CHM 102': 'General Chemistry II',
     'MTH 101': 'Elementary Math I', 'MTH 102': 'Elementary Math II',
-    'PHY 101': 'General Physics I', 'PHY 102': 'General Physics II',
-    'PHY 103': 'Physics for Eng I', 'PHY 104': 'Physics for Eng II',
+    'PHY 101': 'General Physics I', 'PHY 102': 'General Physics II', 'PHY 103': 'Physics for Eng I', 'PHY 104': 'Physics for Eng II',
     'ECO 101': 'Principles of Economics I', 'ECO 102': 'Principles of Economics II',
+    'POL 101': 'Intro to Politics', 'POL 102': 'Political Theory', 'SOC 101': 'Intro to Sociology', 'SOC 102': 'Social Structure',
+    'EDU 101': 'Intro to Education', 'EDU 102': 'Educational Psychology', 'EDC 101': 'Curriculum Studies', 'EDC 102': 'Instructional Methods',
+    'PCL 101': 'Intro to Pharmacy', 'PCL 102': 'Pharmacy Practice', 'PCH 101': 'Pharmaceutical Chemistry I', 'PCH 102': 'Pharmaceutical Chemistry II',
+    'BUS 101': 'Intro to Business', 'BUS 102': 'Business Environment', 'ACC 101': 'Intro to Accounting', 'ACC 102': 'Financial Accounting',
+    'ARC 101': 'Intro to Architecture', 'ARC 102': 'Architectural Design', 'URP 101': 'Intro to Urban Planning', 'URP 102': 'Planning Theory',
+    'ANA 101': 'Gross Anatomy I', 'ANA 102': 'Gross Anatomy II', 'PHS 101': 'Physiology I', 'PHS 102': 'Physiology II', 'BCH 101': 'Biochemistry I', 'BCH 102': 'Biochemistry II',
+    'MED 101': 'Intro to Medicine', 'MED 102': 'Medical Ethics', 'SUR 101': 'Intro to Surgery', 'SUR 102': 'Surgical Principles',
+    'DEN 101': 'Intro to Dentistry', 'DEN 102': 'Dental Anatomy', 'ORA 101': 'Oral Biology', 'ORA 102': 'Oral Histology',
     'CSC 101': 'Intro to Computing', 'CSC 102': 'Programming Fundamentals'
 };
 
-// ==================== FORCE CLEAR USERS ====================
+// ==================== FORCE CLEAR USERS (Comment out after first deploy) ====================
 async function forceClearUsers() {
     try {
         await User.deleteMany({});
@@ -144,17 +151,18 @@ async function seedQuestions() {
             for (const semester of ['first', 'second']) {
                 for (const courseCode of courses[semester] || []) {
                     await ExamQuestion.create([
-                        { courseCode, courseName: COURSE_NAMES[courseCode] || courseCode, faculty, level: '100', semester, mode: 'exam', text: `${courseCode}: Sample exam question 1`, options: ['A', 'B', 'C', 'D'], correctOption: 0, explanation: 'Sample explanation.', difficulty: 'easy' },
-                        { courseCode, courseName: COURSE_NAMES[courseCode] || courseCode, faculty, level: '100', semester, mode: 'exam', text: `${courseCode}: Sample exam question 2`, options: ['A', 'B', 'C', 'D'], correctOption: 1, explanation: 'Sample explanation.', difficulty: 'medium' }
+                        { courseCode, courseName: COURSE_NAMES[courseCode] || courseCode, faculty, level: '100', semester, mode: 'exam', text: `${courseCode}: What is the primary focus of ${COURSE_NAMES[courseCode] || 'this course'}?`, options: ['Concept A', 'Concept B', 'Concept C', 'Concept D'], correctOption: 0, explanation: 'This is a foundational concept in the course.', difficulty: 'easy' },
+                        { courseCode, courseName: COURSE_NAMES[courseCode] || courseCode, faculty, level: '100', semester, mode: 'exam', text: `${courseCode}: Which of the following is correct?`, options: ['Option A', 'Option B', 'Option C', 'Option D'], correctOption: 1, explanation: 'Refer to your course materials for verification.', difficulty: 'medium' },
+                        { courseCode, courseName: COURSE_NAMES[courseCode] || courseCode, faculty, level: '100', semester, mode: 'exam', text: `${courseCode}: Identify the correct statement.`, options: ['Statement A', 'Statement B', 'Statement C', 'Statement D'], correctOption: 2, explanation: 'This is based on standard curriculum.', difficulty: 'hard' }
                     ]);
                     await TestQuestion.create([
-                        { courseCode, courseName: COURSE_NAMES[courseCode] || courseCode, faculty, level: '100', semester, mode: 'test', text: `${courseCode}: Sample test question 1`, options: ['A', 'B', 'C', 'D'], correctOption: 0, hint: 'Think carefully.', explanation: 'Sample explanation.', difficulty: 'easy' },
-                        { courseCode, courseName: COURSE_NAMES[courseCode] || courseCode, faculty, level: '100', semester, mode: 'test', text: `${courseCode}: Sample test question 2`, options: ['A', 'B', 'C', 'D'], correctOption: 1, hint: 'Consider all.', explanation: 'Sample explanation.', difficulty: 'medium' }
+                        { courseCode, courseName: COURSE_NAMES[courseCode] || courseCode, faculty, level: '100', semester, mode: 'test', text: `${courseCode}: Practice question - ${COURSE_NAMES[courseCode] || ''}`, options: ['Option A', 'Option B', 'Option C', 'Option D'], correctOption: 0, hint: 'Review the basics of this topic.', explanation: 'Practice helps reinforce learning.', difficulty: 'easy' },
+                        { courseCode, courseName: COURSE_NAMES[courseCode] || courseCode, faculty, level: '100', semester, mode: 'test', text: `${courseCode}: Another practice question`, options: ['Option A', 'Option B', 'Option C', 'Option D'], correctOption: 1, hint: 'Consider all possibilities before answering.', explanation: 'Keep practicing!', difficulty: 'medium' }
                     ]);
                 }
             }
         }
-        console.log('✅ Questions seeded for all 14 faculties');
+        console.log('✅ Questions seeded for all 14 faculties (100 Level)');
     } catch (e) { console.error('Seed error:', e.message); }
 }
 
@@ -178,7 +186,7 @@ app.post('/api/auth/register', async (req, res) => {
             currentStreak: 1, lastActive: new Date()
         });
         
-        await Notification.create({ user: user._id, title: '🎉 Welcome!', message: `Welcome ${fullName}! Start practicing today.`, type: 'success' });
+        await Notification.create({ user: user._id, title: '🎉 Welcome to OAU Exam Plug!', message: `Welcome ${fullName}! Your journey to academic excellence starts now. Start practicing today!`, type: 'success' });
         
         const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET || 'secret123', { expiresIn: '7d' });
         res.json({ token, user: { ...user.toObject(), password: undefined } });
@@ -203,7 +211,7 @@ app.post('/api/auth/login', async (req, res) => {
             
             if (user.currentStreak === 7) {
                 user.achievements.push({ name: 'Week Warrior', description: '7-day study streak!' });
-                await Notification.create({ user: user._id, title: '🏆 Achievement!', message: 'Week Warrior: 7-day streak!', type: 'achievement' });
+                await Notification.create({ user: user._id, title: '🏆 Achievement Unlocked!', message: 'Week Warrior: You studied for 7 consecutive days!', type: 'achievement' });
             }
             await user.save();
         }
@@ -227,7 +235,7 @@ app.get('/api/users/leaderboard', async (req, res) => {
                 name: u.username, examsTaken: u.examsTaken || 0, testsTaken: u.testsTaken || 0,
                 overallAvg: avg, achievements: (u.achievements || []).length, registeredDate: u.createdAt
             };
-        }).sort((a, b) => b.overallAvg - a.overallAvg);
+        }).filter(u => u.examsTaken > 0 || u.testsTaken > 0).sort((a, b) => b.overallAvg - a.overallAvg);
         res.json({ leaderboard });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -285,7 +293,7 @@ app.post('/api/auth/change-password', async (req, res) => {
         
         user.password = await bcrypt.hash(newPassword, 12);
         await user.save();
-        res.json({ success: true });
+        res.json({ success: true, message: 'Password changed successfully!' });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -330,16 +338,16 @@ app.post('/api/exams/session/submit', async (req, res) => {
         user.scores.push({ course: courseCode, score: correct, totalQuestions: questions.length, percentage: pct, mode: 'exam' });
         
         if (user.examsTaken === 1) {
-            user.achievements.push({ name: 'First Exam', description: 'Completed first exam!' });
-            await Notification.create({ user: user._id, title: '🏆 Achievement!', message: 'First Exam completed!', type: 'achievement' });
+            user.achievements.push({ name: 'First Exam', description: 'Completed your first exam!' });
+            await Notification.create({ user: user._id, title: '🏆 First Exam!', message: 'You completed your first exam! Keep going!', type: 'achievement' });
         }
         if (pct >= 90) {
-            user.achievements.push({ name: 'Excellence', description: 'Scored 90%+' });
-            await Notification.create({ user: user._id, title: '🏆 Excellence!', message: '90%+ score!', type: 'achievement' });
+            user.achievements.push({ name: 'Excellence', description: 'Scored 90% or above!' });
+            await Notification.create({ user: user._id, title: '🏆 Excellence!', message: `Amazing! You scored ${pct}% in ${courseCode}!`, type: 'achievement' });
         }
         
         await user.save();
-        await Notification.create({ user: user._id, title: '📝 Exam Done!', message: `${pct}% in ${courseCode}`, type: 'success' });
+        await Notification.create({ user: user._id, title: '📝 Exam Completed!', message: `You scored ${pct}% in ${courseCode}. ${correct}/${questions.length} correct.`, type: 'success' });
         res.json({ score: pct, correctCount: correct, totalQuestions: questions.length });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -363,7 +371,7 @@ app.post('/api/tests/session/submit', async (req, res) => {
         user.scores.push({ course: courseCode, score: correct, totalQuestions: questions.length, percentage: pct, mode: 'test' });
         
         await user.save();
-        await Notification.create({ user: user._id, title: '🧪 Test Done!', message: `${pct}% in ${courseCode}`, type: 'success' });
+        await Notification.create({ user: user._id, title: '🧪 Test Completed!', message: `You scored ${pct}% in ${courseCode} test. ${correct}/${questions.length} correct.`, type: 'success' });
         res.json({ score: pct, correctCount: correct, totalQuestions: questions.length });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -377,16 +385,22 @@ app.post('/api/ai/chat', async (req, res) => {
             return res.json({ reply: `OAU has 14 faculties: ${FACULTIES.join(', ')}. 100 level courses are available now!` });
         }
         if (lowerMsg.includes('course') || lowerMsg.includes('courses')) {
-            return res.json({ reply: '100 level courses include GST 111, GST 112, and faculty-specific courses like CHM 101, MTH 101, PHY 101, BIO 101, CSC 101, and more!' });
+            return res.json({ reply: '100 level courses include GST 111, GST 112, and faculty-specific courses like CHM 101, MTH 101, PHY 101, BIO 101, CSC 101, and more! 200-500 level coming soon.' });
         }
         if (lowerMsg.includes('study') || lowerMsg.includes('tip')) {
-            return res.json({ reply: 'Study tips: Use active recall, spaced repetition, take breaks, and get adequate sleep before exams!' });
+            return res.json({ reply: '📚 Study Tips: Use active recall (test yourself), spaced repetition (review at intervals), take 15-min breaks every hour, and get 7-8 hours of sleep before exams!' });
         }
         if (lowerMsg.includes('exam') || lowerMsg.includes('test')) {
-            return res.json({ reply: 'You can take timed exams or practice tests with hints. Your scores are tracked on the leaderboard!' });
+            return res.json({ reply: 'You can take timed exams (50 min) or practice tests (40 min) with hints. Your scores are tracked on your dashboard and leaderboard!' });
+        }
+        if (lowerMsg.includes('streak') || lowerMsg.includes('daily')) {
+            return res.json({ reply: 'Complete at least one exam or test each day to maintain your streak. Streaks reset after 24 hours of inactivity. Week-long streaks earn achievements!' });
+        }
+        if (lowerMsg.includes('achievement') || lowerMsg.includes('badge')) {
+            return res.json({ reply: 'Earn achievements by completing exams, maintaining streaks, and scoring high marks. Check your profile to see your badges!' });
         }
         
-        res.json({ reply: "I'm ExamPlugAI by Francistech! Ask me about OAU faculties, courses, study tips, or exam strategies." });
+        res.json({ reply: "I'm ExamPlugAI by Francistech! I can help with study tips, course information, exam strategies, and more. What would you like to know?" });
     } catch (e) { res.json({ reply: "I'm here to help! Ask me anything about your studies." }); }
 });
 
@@ -395,8 +409,8 @@ const PORT = process.env.PORT || 5000;
 mongoose.connect(process.env.MONGODB_URI)
     .then(async () => {
         console.log('✅ MongoDB connected');
-        await forceClearUsers();
+        // await forceClearUsers(); // Uncomment to clear database on deploy
         await seedQuestions();
-        app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+        app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}\n📚 14 Faculties | 100 Level Active | 200+ Coming Soon`));
     })
     .catch(e => console.error('❌ MongoDB error:', e.message));
