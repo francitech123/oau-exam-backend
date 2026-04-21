@@ -143,7 +143,7 @@ const userSchema = new mongoose.Schema({
     achievements: [{ name: String, description: String, dateEarned: { type: Date, default: Date.now } }],
     scores: [{ course: String, score: Number, totalQuestions: Number, percentage: Number, mode: String, date: { type: Date, default: Date.now } }],
     preferences: { darkMode: { type: Boolean, default: true } },
-    profilePicture: { type: String, default: null }, // Base64 image data
+    profilePicture: { type: String, default: null },
     loginHistory: [{ ip: String, userAgent: String, timestamp: Date }],
     failedLoginAttempts: { type: Number, default: 0 },
     lockedUntil: { type: Date, default: null },
@@ -245,7 +245,23 @@ const COURSE_NAMES = {
     'PHY 103': 'Physics for Life Sci I', 'PHY 104': 'Physics for Life Sci II',
     'ECO 101': 'Principles of Economics I', 'ECO 102': 'Principles of Economics II',
     'PCY 101': 'Intro to Pharmacy', 'PCY 102': 'Pharmacy Practice',
-    'COS 101': 'Intro to Computing', 'COS 102': 'Programming Fundamentals'
+    'COS 101': 'Intro to Computing', 'COS 102': 'Programming Fundamentals',
+    'BUS 101': 'Intro to Business', 'BUS 102': 'Business Environment',
+    'ACC 101': 'Intro to Accounting', 'ACC 102': 'Financial Accounting',
+    'ARC 101': 'Intro to Architecture', 'ARC 102': 'Architectural Design',
+    'URP 101': 'Intro to Urban Planning', 'URP 102': 'Planning Theory',
+    'ANA 101': 'Gross Anatomy I', 'ANA 102': 'Gross Anatomy II',
+    'PHS 101': 'Physiology I', 'PHS 102': 'Physiology II',
+    'BCH 101': 'Biochemistry I', 'BCH 102': 'Biochemistry II',
+    'MED 101': 'Intro to Medicine', 'MED 102': 'Medical Ethics',
+    'SUR 101': 'Intro to Surgery', 'SUR 102': 'Surgical Principles',
+    'DEN 101': 'Intro to Dentistry', 'DEN 102': 'Dental Anatomy',
+    'ORA 101': 'Oral Biology', 'ORA 102': 'Oral Histology',
+    'EDU 101': 'Intro to Education', 'EDU 102': 'Educational Psychology',
+    'EDC 101': 'Curriculum Studies', 'EDC 102': 'Instructional Methods',
+    'POL 101': 'Intro to Politics', 'POL 102': 'Political Theory',
+    'SOC 101': 'Intro to Sociology', 'SOC 102': 'Social Structure',
+    'PHL 101': 'Intro to Philosophy', 'PHL 102': 'Logic'
 };
 
 // ==================== AUTH MIDDLEWARE ====================
@@ -266,6 +282,25 @@ const authMiddleware = async (req, res, next) => {
     }
 };
 
+const adminMiddleware = async (req, res, next) => {
+    if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin access required' });
+    next();
+};
+
+// ==================== VALIDATION HELPERS ====================
+function validatePassword(password) {
+    if (password.length < 8) return 'Password must be at least 8 characters';
+    if (!/[A-Z]/.test(password)) return 'Password must contain uppercase letter';
+    if (!/[a-z]/.test(password)) return 'Password must contain lowercase letter';
+    if (!/[0-9]/.test(password)) return 'Password must contain number';
+    return null;
+}
+
+function sanitizeInput(input) {
+    if (typeof input !== 'string') return input;
+    return input.replace(/[<>'"]/g, '').trim();
+}
+
 // ==================== ROUTES ====================
 
 app.get('/', (req, res) => res.json({ message: 'OAU Exam Plug API', status: 'secure', version: '5.0.0' }));
@@ -275,23 +310,22 @@ app.get('/api/health', (req, res) => res.json({ status: 'OK', timestamp: new Dat
 app.post('/api/auth/register', async (req, res) => {
     try {
         const { fullName, username, email, password, faculty, department, level, securityQuestion, securityAnswer } = req.body;
-        if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-        if (!/[A-Z]/.test(password)) return res.status(400).json({ error: 'Password must contain uppercase letter' });
-        if (!/[a-z]/.test(password)) return res.status(400).json({ error: 'Password must contain lowercase letter' });
-        if (!/[0-9]/.test(password)) return res.status(400).json({ error: 'Password must contain number' });
+        const passwordError = validatePassword(password);
+        if (passwordError) return res.status(400).json({ error: passwordError });
         if (!FACULTIES.includes(faculty)) return res.status(400).json({ error: 'Invalid faculty' });
+        if (!securityQuestion || !securityAnswer) return res.status(400).json({ error: 'Security question and answer required' });
         
         const exists = await User.findOne({ username: username.toLowerCase() });
         if (exists) return res.status(400).json({ error: 'Username already taken' });
         
         const hashed = await bcrypt.hash(password, 14);
         const user = await User.create({
-            fullName, username: username.toLowerCase(), email: email?.toLowerCase(),
-            password: hashed, faculty, department, level: level || '100',
+            fullName: sanitizeInput(fullName), username: username.toLowerCase(), email: email?.toLowerCase(),
+            password: hashed, faculty, department: sanitizeInput(department), level: level || '100',
             securityQuestion, securityAnswer, currentStreak: 1, lastActive: new Date()
         });
         
-        await Notification.create({ user: user._id, title: '🎉 Welcome!', message: `Welcome ${fullName}! Start practicing today.`, type: 'success' });
+        await Notification.create({ user: user._id, title: '🎉 Welcome!', message: `Welcome ${sanitizeInput(fullName)}! Start practicing today.`, type: 'success' });
         
         const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
         const userResponse = user.toObject();
@@ -333,6 +367,9 @@ app.post('/api/auth/login', async (req, res) => {
                 await Notification.create({ user: user._id, title: '🏆 Achievement!', message: 'Week Warrior: 7-day streak!', type: 'achievement' });
             }
         }
+        
+        user.loginHistory.push({ ip: req.clientIP, userAgent: req.headers['user-agent'], timestamp: new Date() });
+        if (user.loginHistory.length > 10) user.loginHistory.shift();
         await user.save();
         
         const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
@@ -344,7 +381,7 @@ app.post('/api/auth/login', async (req, res) => {
     } catch (e) { res.status(500).json({ error: 'Login failed' }); }
 });
 
-// Get current user (for sync)
+// Get current user (LIVE SYNC)
 app.get('/api/auth/me', authMiddleware, async (req, res) => {
     try {
         const user = await User.findById(req.user._id).select('-password -securityAnswer');
@@ -376,16 +413,17 @@ app.put('/api/users/notifications/read', authMiddleware, async (req, res) => {
 // Update profile
 app.put('/api/users/profile', authMiddleware, async (req, res) => {
     try {
-        const { fullName, email, faculty, department, level, studyGoals, profilePicture } = req.body;
+        const { fullName, email, faculty, department, level, studyGoals, profilePicture, preferences } = req.body;
         const user = await User.findById(req.user._id);
         
-        if (fullName) user.fullName = fullName;
+        if (fullName) user.fullName = sanitizeInput(fullName);
         if (email) user.email = email.toLowerCase();
         if (faculty && FACULTIES.includes(faculty)) user.faculty = faculty;
-        if (department) user.department = department;
+        if (department) user.department = sanitizeInput(department);
         if (level) user.level = level;
         if (studyGoals) user.studyGoals = Math.min(100, Math.max(1, studyGoals));
         if (profilePicture !== undefined) user.profilePicture = profilePicture;
+        if (preferences) user.preferences = { ...user.preferences, ...preferences };
         
         await user.save();
         const userResponse = user.toObject();
@@ -400,10 +438,8 @@ app.put('/api/users/profile', authMiddleware, async (req, res) => {
 app.post('/api/auth/change-password', authMiddleware, async (req, res) => {
     try {
         const { currentPassword, newPassword } = req.body;
-        if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-        if (!/[A-Z]/.test(newPassword)) return res.status(400).json({ error: 'Password must contain uppercase' });
-        if (!/[a-z]/.test(newPassword)) return res.status(400).json({ error: 'Password must contain lowercase' });
-        if (!/[0-9]/.test(newPassword)) return res.status(400).json({ error: 'Password must contain number' });
+        const passwordError = validatePassword(newPassword);
+        if (passwordError) return res.status(400).json({ error: passwordError });
         
         const user = await User.findById(req.user._id);
         const match = await bcrypt.compare(currentPassword, user.password);
@@ -495,6 +531,50 @@ app.post('/api/tests/session/submit', authMiddleware, async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// AI Chat
+app.post('/api/ai/chat', authMiddleware, async (req, res) => {
+    try {
+        const { message } = req.body;
+        const lowerMsg = message.toLowerCase();
+        
+        if (lowerMsg.includes('faculty') || lowerMsg.includes('faculties')) {
+            return res.json({ reply: `OAU has 14 faculties: ${FACULTIES.join(', ')}. 100 level courses are available now!` });
+        }
+        if (lowerMsg.includes('course') || lowerMsg.includes('courses')) {
+            return res.json({ reply: '100 level courses include GST 111, GST 112, CHM 101, MTH 101, PHY 101, BIO 101, COS 101, PCY 101, and more! 200-500 level coming soon.' });
+        }
+        if (lowerMsg.includes('study') || lowerMsg.includes('tip')) {
+            return res.json({ reply: '📚 Study Tips: Use active recall, spaced repetition, take 15-min breaks every hour, and get 7-8 hours of sleep before exams!' });
+        }
+        if (lowerMsg.includes('exam') || lowerMsg.includes('test')) {
+            return res.json({ reply: 'You can take timed exams (50 min) or practice tests (40 min) with hints. Your scores are tracked on your dashboard!' });
+        }
+        if (lowerMsg.includes('streak') || lowerMsg.includes('daily')) {
+            return res.json({ reply: 'Complete at least one exam or test each day to maintain your streak. 7-day streaks earn achievements!' });
+        }
+        if (lowerMsg.includes('profile') || lowerMsg.includes('picture')) {
+            return res.json({ reply: 'You can upload a profile picture in the Profile page. Your picture syncs across all devices when you log in!' });
+        }
+        
+        res.json({ reply: "I'm ExamPlugAI by Francistech! Ask me about faculties, courses, study tips, exam strategies, or how to earn achievements." });
+    } catch (e) { res.json({ reply: "I'm here to help! Ask me anything about your studies." }); }
+});
+
+// ==================== ADMIN ROUTES ====================
+app.post('/api/admin/questions/exam', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const question = await ExamQuestion.create({ ...req.body, createdBy: req.user._id });
+        res.json({ success: true, question });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/questions/test', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const question = await TestQuestion.create({ ...req.body, createdBy: req.user._id });
+        res.json({ success: true, question });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ==================== ERROR HANDLER ====================
 app.use((err, req, res, next) => {
     console.error('Error:', err.message);
@@ -506,5 +586,5 @@ app.use((req, res) => { res.status(404).json({ error: 'Endpoint not found' }); }
 // ==================== START SERVER ====================
 const PORT = process.env.PORT || 5000;
 connectDB().then(() => {
-    app.listen(PORT, () => console.log(`🔒 Secure server running on port ${PORT}`));
+    app.listen(PORT, () => console.log(`🔒 Secure server running on port ${PORT}\n📚 14 Faculties | Live Sync Active`));
 });
