@@ -68,6 +68,7 @@ const examLimiter = rateLimit({ windowMs: 5 * 60 * 1000, max: 20, message: { err
 app.use('/api/', globalLimiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
+app.use('/api/auth/reset-password', authLimiter);
 app.use('/api/exams/session/submit', examLimiter);
 app.use('/api/tests/session/submit', examLimiter);
 
@@ -208,7 +209,7 @@ const notificationSchema = new mongoose.Schema({
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     title: { type: String, required: true, maxlength: 100 },
     message: { type: String, required: true, maxlength: 500 },
-    type: { type: String, enum: ['success', 'info', 'warning', 'achievement'], default: 'info' },
+    type: { type: String, enum: ['success', 'info', 'warning', 'achievement', 'global'], default: 'info' },
     read: { type: Boolean, default: false },
     createdAt: { type: Date, default: Date.now }
 });
@@ -273,6 +274,11 @@ const authMiddleware = async (req, res, next) => {
         const user = await User.findById(decoded.id).select('-password -securityAnswer');
         if (!user) return res.status(401).json({ error: 'User not found' });
         if (user.lockedUntil && user.lockedUntil > new Date()) return res.status(403).json({ error: 'Account temporarily locked' });
+        
+        // Update last active
+        user.lastActive = new Date();
+        await user.save();
+        
         req.user = user;
         next();
     } catch (e) {
@@ -303,7 +309,7 @@ function sanitizeInput(input) {
 
 // ==================== ROUTES ====================
 
-app.get('/', (req, res) => res.json({ message: 'OAU Exam Plug API', status: 'secure', version: '5.0.0' }));
+app.get('/', (req, res) => res.json({ message: 'OAU Exam Plug API', status: 'secure', version: '6.0.0' }));
 app.get('/api/health', (req, res) => res.json({ status: 'OK', timestamp: new Date().toISOString() }));
 
 // Register
@@ -368,7 +374,7 @@ app.post('/api/auth/login', async (req, res) => {
             }
         }
         
-        user.loginHistory.push({ ip: req.clientIP, userAgent: req.headers['user-agent'], timestamp: new Date() });
+        user.loginHistory.push({ ip: req.ip || 'unknown', userAgent: req.headers['user-agent'] || 'unknown', timestamp: new Date() });
         if (user.loginHistory.length > 10) user.loginHistory.shift();
         await user.save();
         
@@ -379,6 +385,30 @@ app.post('/api/auth/login', async (req, res) => {
         
         res.json({ token, user: userResponse });
     } catch (e) { res.status(500).json({ error: 'Login failed' }); }
+});
+
+// Reset password (forgot password)
+app.post('/api/auth/reset-password', async (req, res) => {
+    try {
+        const { username, securityQuestion, securityAnswer, newPassword } = req.body;
+        
+        const passwordError = validatePassword(newPassword);
+        if (passwordError) return res.status(400).json({ error: passwordError });
+        
+        const user = await User.findOne({ username: username.toLowerCase() });
+        if (!user) return res.status(400).json({ error: 'User not found' });
+        if (user.securityQuestion !== securityQuestion) return res.status(400).json({ error: 'Security question does not match' });
+        
+        const decryptedAnswer = decryptSensitiveData(user.securityAnswer);
+        if (decryptedAnswer !== securityAnswer.toLowerCase()) return res.status(400).json({ error: 'Security answer incorrect' });
+        
+        user.password = await bcrypt.hash(newPassword, 14);
+        user.failedLoginAttempts = 0;
+        user.lockedUntil = null;
+        await user.save();
+        
+        res.json({ success: true, message: 'Password reset successfully' });
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Get current user (LIVE SYNC)
@@ -397,7 +427,9 @@ app.get('/api/courses', (req, res) => {
 // Get notifications
 app.get('/api/users/notifications', authMiddleware, async (req, res) => {
     try {
-        const notifs = await Notification.find({ user: req.user._id }).sort({ createdAt: -1 }).limit(50);
+        const notifs = await Notification.find({ 
+            $or: [{ user: req.user._id }, { type: 'global' }] 
+        }).sort({ createdAt: -1 }).limit(50);
         res.json({ notifications: notifs });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -407,6 +439,17 @@ app.put('/api/users/notifications/read', authMiddleware, async (req, res) => {
     try {
         await Notification.updateMany({ user: req.user._id, read: false }, { read: true });
         res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Create global notification (Admin only)
+app.post('/api/admin/notifications/global', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const { title, message, type } = req.body;
+        const users = await User.find({}).select('_id');
+        const notifications = users.map(u => ({ user: u._id, title, message, type: type || 'global', read: false }));
+        await Notification.insertMany(notifications);
+        res.json({ success: true, count: notifications.length });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -586,5 +629,5 @@ app.use((req, res) => { res.status(404).json({ error: 'Endpoint not found' }); }
 // ==================== START SERVER ====================
 const PORT = process.env.PORT || 5000;
 connectDB().then(() => {
-    app.listen(PORT, () => console.log(`🔒 Secure server running on port ${PORT}\n📚 14 Faculties | Live Sync Active`));
+    app.listen(PORT, () => console.log(`🔒 Secure server running on port ${PORT}\n📚 14 Faculties | Live Sync Active | Global Notifications Ready`));
 });
