@@ -1,5 +1,19 @@
-.env
+# Dependencies
 node_modules/
-.DS_Store
+
+# Environment variables (SECRETS!)
+.env
+.env.local
+.env.production
+
+# Logs
 *.log
 npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
