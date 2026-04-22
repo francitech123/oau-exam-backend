@@ -41,7 +41,7 @@ app.use(cors({
         if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
-            console.warn(`⚠️ Blocked CORS request from: ${origin}`);
+            console.warn(`⚠️ Blocked CORS from: ${origin}`);
             callback(new Error('CORS not allowed'));
         }
     },
@@ -50,11 +50,9 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-// ==================== BODY PARSING ====================
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
-// Rate limiting
 const globalLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100, message: { error: 'Too many requests' } });
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: 'Too many auth attempts' } });
 const examLimiter = rateLimit({ windowMs: 5 * 60 * 1000, max: 20, message: { error: 'Too many submissions' } });
@@ -62,6 +60,7 @@ const examLimiter = rateLimit({ windowMs: 5 * 60 * 1000, max: 20, message: { err
 app.use('/api/', globalLimiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
+app.use('/api/auth/reset-password', authLimiter);
 app.use('/api/exams/session/submit', examLimiter);
 app.use('/api/tests/session/submit', examLimiter);
 
@@ -224,33 +223,13 @@ const COURSES_100 = {
 
 const COURSE_NAMES = {
     'GST 111': 'Use of English I', 'GST 112': 'Use of English II',
-    'AGR 101': 'Intro to Agriculture', 'AGR 102': 'Principles of Agriculture',
-    'ENG 101': 'Intro to Literature', 'ENG 102': 'Advanced Literature',
-    'JIL 101': 'Legal Methods', 'JIL 102': 'Nigerian Legal System',
-    'BIO 101': 'General Biology I', 'BIO 102': 'General Biology II',
     'CHM 101': 'General Chemistry I', 'CHM 102': 'General Chemistry II',
     'MTH 101': 'Elementary Math I', 'MTH 102': 'Elementary Math II',
     'PHY 101': 'General Physics I', 'PHY 102': 'General Physics II',
     'PHY 103': 'Physics for Life Sci I', 'PHY 104': 'Physics for Life Sci II',
-    'ECO 101': 'Principles of Economics I', 'ECO 102': 'Principles of Economics II',
-    'PCY 101': 'Intro to Pharmacy', 'PCY 102': 'Pharmacy Practice',
+    'BIO 101': 'General Biology I', 'BIO 102': 'General Biology II',
     'COS 101': 'Intro to Computing', 'COS 102': 'Programming Fundamentals',
-    'BUS 101': 'Intro to Business', 'BUS 102': 'Business Environment',
-    'ACC 101': 'Intro to Accounting', 'ACC 102': 'Financial Accounting',
-    'ARC 101': 'Intro to Architecture', 'ARC 102': 'Architectural Design',
-    'URP 101': 'Intro to Urban Planning', 'URP 102': 'Planning Theory',
-    'ANA 101': 'Gross Anatomy I', 'ANA 102': 'Gross Anatomy II',
-    'PHS 101': 'Physiology I', 'PHS 102': 'Physiology II',
-    'BCH 101': 'Biochemistry I', 'BCH 102': 'Biochemistry II',
-    'MED 101': 'Intro to Medicine', 'MED 102': 'Medical Ethics',
-    'SUR 101': 'Intro to Surgery', 'SUR 102': 'Surgical Principles',
-    'DEN 101': 'Intro to Dentistry', 'DEN 102': 'Dental Anatomy',
-    'ORA 101': 'Oral Biology', 'ORA 102': 'Oral Histology',
-    'EDU 101': 'Intro to Education', 'EDU 102': 'Educational Psychology',
-    'EDC 101': 'Curriculum Studies', 'EDC 102': 'Instructional Methods',
-    'POL 101': 'Intro to Politics', 'POL 102': 'Political Theory',
-    'SOC 101': 'Intro to Sociology', 'SOC 102': 'Social Structure',
-    'PHL 101': 'Intro to Philosophy', 'PHL 102': 'Logic'
+    'PCY 101': 'Intro to Pharmacy', 'PCY 102': 'Pharmacy Practice'
 };
 
 // ==================== AUTH MIDDLEWARE ====================
@@ -287,11 +266,6 @@ function validatePassword(password) {
     return null;
 }
 
-function sanitizeInput(input) {
-    if (typeof input !== 'string') return input;
-    return input.replace(/[<>'"]/g, '').trim();
-}
-
 // ==================== ROUTES ====================
 
 app.get('/', (req, res) => res.json({ message: 'OAU Exam Plug API', status: 'running', version: '6.0.0' }));
@@ -314,12 +288,12 @@ app.post('/api/auth/register', async (req, res) => {
         
         const hashed = await bcrypt.hash(password, 14);
         const user = await User.create({
-            fullName: sanitizeInput(fullName), username: username.toLowerCase(), email: email?.toLowerCase(),
-            password: hashed, faculty, department: sanitizeInput(department), level: level || '100',
+            fullName, username: username.toLowerCase(), email: email?.toLowerCase(),
+            password: hashed, faculty, department, level: level || '100',
             securityQuestion, securityAnswer, currentStreak: 1, lastActive: new Date()
         });
         
-        await Notification.create({ user: user._id, title: '🎉 Welcome!', message: `Welcome ${sanitizeInput(fullName)}! Start practicing today.`, type: 'success' });
+        await Notification.create({ user: user._id, title: '🎉 Welcome!', message: `Welcome ${fullName}! Start practicing today.`, type: 'success' });
         
         const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
         const userResponse = user.toObject();
@@ -377,7 +351,7 @@ app.post('/api/auth/login', async (req, res) => {
     } catch (e) { res.status(500).json({ error: 'Login failed' }); }
 });
 
-// Forgot Password / Reset Password
+// Reset password
 app.post('/api/auth/reset-password', async (req, res) => {
     try {
         const { username, securityQuestion, securityAnswer, newPassword } = req.body;
@@ -401,7 +375,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Get current user (LIVE SYNC)
+// Get current user
 app.get('/api/auth/me', authMiddleware, async (req, res) => {
     try {
         const user = await User.findById(req.user._id).select('-password -securityAnswer');
@@ -429,14 +403,12 @@ app.post('/api/auth/change-password', authMiddleware, async (req, res) => {
 
 // ==================== COURSE ROUTES ====================
 
-// Get all courses and faculties
 app.get('/api/courses', (req, res) => {
     res.json({ courses: COURSES_100, courseNames: COURSE_NAMES, faculties: FACULTIES });
 });
 
 // ==================== USER/PROFILE ROUTES ====================
 
-// Get notifications
 app.get('/api/users/notifications', authMiddleware, async (req, res) => {
     try {
         const notifs = await Notification.find({ 
@@ -446,7 +418,6 @@ app.get('/api/users/notifications', authMiddleware, async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Mark notifications read
 app.put('/api/users/notifications/read', authMiddleware, async (req, res) => {
     try {
         await Notification.updateMany({ user: req.user._id, read: false }, { read: true });
@@ -454,16 +425,15 @@ app.put('/api/users/notifications/read', authMiddleware, async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Update profile
 app.put('/api/users/profile', authMiddleware, async (req, res) => {
     try {
         const { fullName, email, faculty, department, level, studyGoals, profilePicture, preferences } = req.body;
         const user = await User.findById(req.user._id);
         
-        if (fullName) user.fullName = sanitizeInput(fullName);
+        if (fullName) user.fullName = fullName;
         if (email) user.email = email.toLowerCase();
         if (faculty && FACULTIES.includes(faculty)) user.faculty = faculty;
-        if (department) user.department = sanitizeInput(department);
+        if (department) user.department = department;
         if (level) user.level = level;
         if (studyGoals) user.studyGoals = Math.min(100, Math.max(1, studyGoals));
         if (profilePicture !== undefined) user.profilePicture = profilePicture;
@@ -480,7 +450,6 @@ app.put('/api/users/profile', authMiddleware, async (req, res) => {
 
 // ==================== EXAM ROUTES ====================
 
-// Start exam session
 app.post('/api/exams/session/start', authMiddleware, async (req, res) => {
     try {
         const { courseCode } = req.body;
@@ -492,7 +461,6 @@ app.post('/api/exams/session/start', authMiddleware, async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Submit exam
 app.post('/api/exams/session/submit', authMiddleware, async (req, res) => {
     try {
         const { courseCode, answers, timeSpent } = req.body;
@@ -526,7 +494,6 @@ app.post('/api/exams/session/submit', authMiddleware, async (req, res) => {
 
 // ==================== TEST ROUTES ====================
 
-// Start test session
 app.post('/api/tests/session/start', authMiddleware, async (req, res) => {
     try {
         const { courseCode } = req.body;
@@ -538,7 +505,6 @@ app.post('/api/tests/session/start', authMiddleware, async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Submit test
 app.post('/api/tests/session/submit', authMiddleware, async (req, res) => {
     try {
         const { courseCode, answers, timeSpent } = req.body;
@@ -561,109 +527,8 @@ app.post('/api/tests/session/submit', authMiddleware, async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ==================== AI CHAT ROUTE ====================
-app.post('/api/ai/chat', authMiddleware, async (req, res) => {
-    try {
-        const { message } = req.body;
-        
-        if (!message) {
-            return res.status(400).json({ error: 'Message is required' });
-        }
-        
-        // 🔑 API KEY FROM RENDER ENVIRONMENT VARIABLES (COMPLETELY HIDDEN!)
-        const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-        
-        const lowerMsg = message.toLowerCase();
-        
-        // Knowledge base - instant answers without API call
-        const knowledgeBase = {
-            'gst 111': 'GST 111 (Use of English I) is a compulsory 100-level course for all OAU students. It covers: English language proficiency, communication skills, essay writing techniques, comprehension passages, grammar, sentence structure, paragraph development, summary writing, and oral presentations.',
-            'gst 112': 'GST 112 (Use of English II) builds on GST 111 with advanced topics: critical reading, argumentative essays, report writing, public speaking, research methods, and professional communication.',
-            'chm 101': 'CHM 101 (General Chemistry I) covers: Atomic structure and periodic table, chemical bonding, stoichiometry and mole concept, gas laws, thermochemistry, chemical equilibrium, acids and bases, and introduction to organic chemistry.',
-            'mth 101': 'MTH 101 (Elementary Mathematics I) covers: Set theory, real numbers, functions and relations, polynomials, trigonometry, sequences and series, binomial theorem, and introduction to calculus.',
-            'phy 101': 'PHY 101 (General Physics I) covers: Mechanics (motion, forces, energy, momentum), waves and oscillations, thermal physics, and properties of matter.',
-            'bio 101': 'BIO 101 (General Biology I) covers: Cell structure and function, biomolecules, enzymes, cellular respiration, photosynthesis, genetics and heredity, evolution, and classification.',
-            'cos 101': 'COS 101 (Introduction to Computing) covers: History of computing, computer hardware and software, operating systems, word processing, spreadsheets, databases, internet basics, and introduction to programming.',
-            'pcy 101': 'PCY 101 (Introduction to Pharmacy) covers: History of pharmacy, pharmacy practice settings, drug nomenclature, pharmaceutical dosage forms, routes of administration, prescription handling, and professional ethics.',
-            'faculties': `OAU has 14 faculties: ${FACULTIES.join(', ')}. 100-level courses are currently available across all faculties.`,
-            'study tip': '📚 Study Tips:\n1. Active Recall: Test yourself with past questions\n2. Spaced Repetition: Review at intervals\n3. Pomodoro: 25 min study, 5 min break\n4. Practice under timed conditions\n5. Form study groups\n6. Get 7-8 hours of sleep before exams',
-            'achievement': '🏆 Achievements:\n• First Exam: Complete your first exam\n• Week Warrior: 7-day study streak\n• Excellence: Score 90% or above\n• Perfect Score: Get 100% on an exam',
-            'streak': '🔥 Your daily streak increases when you complete at least one exam or test each day. Maintain a 7-day streak to earn the "Week Warrior" achievement!',
-            'developer': '👨‍💻 OAU Exam Plug was created by Francistech (Bobola Francis Oluwanje). Contact: francistech123@gmail.com | WhatsApp: +234 701 503 2268 | Instagram: @francistech | GitHub: francitech123'
-        };
-        
-        // Check knowledge base first
-        for (const [keyword, response] of Object.entries(knowledgeBase)) {
-            if (lowerMsg.includes(keyword)) {
-                console.log('📚 Using knowledge base for:', keyword);
-                return res.json({ reply: response });
-            }
-        }
-        
-        // If no API key, return helpful message
-        if (!GEMINI_API_KEY) {
-            return res.json({ 
-                reply: "I'm ExamPlugAI! Ask me about specific courses (GST 111, CHM 101, MTH 101, etc.), study tips, achievements, or OAU faculties. What would you like to know?" 
-            });
-        }
-        
-        // Try Gemini API
-        console.log('🔄 Calling Gemini API...');
-        
-        const models = ['gemini-2.0-flash', 'gemini-1.5-flash'];
-        
-        for (const model of models) {
-            try {
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'User-Agent': 'OAU-Exam-Plug-Backend/1.0'
-                    },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: `You are ExamPlugAI for OAU students. Answer concisely and helpfully: ${message}` }] }],
-                        generationConfig: { temperature: 0.7, maxOutputTokens: 300 }
-                    })
-                });
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                    if (reply) {
-                        console.log('✅ Gemini response received');
-                        return res.json({ reply });
-                    }
-                }
-            } catch (e) {
-                console.log(`Model ${model} failed:`, e.message);
-            }
-        }
-        
-        // Fallback
-        res.json({ 
-            reply: "I'm here to help! Ask me about OAU courses, study tips, or exam strategies." 
-        });
-        
-    } catch (e) {
-        console.error('❌ AI Error:', e.message);
-        res.status(500).json({ error: 'AI service unavailable' });
-    }
-});
-
 // ==================== ADMIN ROUTES ====================
 
-// Create global notification (Admin only)
-app.post('/api/admin/notifications/global', authMiddleware, adminMiddleware, async (req, res) => {
-    try {
-        const { title, message, type } = req.body;
-        const users = await User.find({}).select('_id');
-        const notifications = users.map(u => ({ user: u._id, title, message, type: type || 'global', read: false }));
-        await Notification.insertMany(notifications);
-        res.json({ success: true, count: notifications.length });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// Add exam question (Admin only)
 app.post('/api/admin/questions/exam', authMiddleware, adminMiddleware, async (req, res) => {
     try {
         const question = await ExamQuestion.create({ ...req.body, createdBy: req.user._id });
@@ -671,7 +536,6 @@ app.post('/api/admin/questions/exam', authMiddleware, adminMiddleware, async (re
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Add test question (Admin only)
 app.post('/api/admin/questions/test', authMiddleware, adminMiddleware, async (req, res) => {
     try {
         const question = await TestQuestion.create({ ...req.body, createdBy: req.user._id });
@@ -690,8 +554,5 @@ app.use((req, res) => { res.status(404).json({ error: 'Endpoint not found' }); }
 // ==================== START SERVER ====================
 const PORT = process.env.PORT || 5000;
 connectDB().then(() => {
-    app.listen(PORT, () => {
-        console.log(`🔒 Secure server running on port ${PORT}`);
-        console.log(`📚 14 Faculties | Live Sync | AI Connected`);
-    });
+    app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 });
