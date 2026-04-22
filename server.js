@@ -65,6 +65,50 @@ const globalLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100, message: {
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: 'Too many authentication attempts.' }, skipSuccessfulRequests: true });
 const examLimiter = rateLimit({ windowMs: 5 * 60 * 1000, max: 20, message: { error: 'Too many exam submissions. Please slow down.' } });
 
+// ==================== AI CHAT PROXY (Hides API Key) ====================
+app.post('/api/ai/chat', async (req, res) => {
+    try {
+        const { message } = req.body;
+        
+        // 🔑 YOUR GEMINI API KEY - PASTE IT HERE (only visible on Render, not in browser)
+        const GEMINI_API_KEY = 'AIzaSyAX6tHh6xOTavQhX5wIxPi_PZ7ckt2wOho';
+        
+        // Try models in order
+        const models = ['gemini-2.5-flash', 'gemini-2.5-flash-exp', 'gemini-2.0-flash'];
+        let reply = null;
+        
+        for (const model of models) {
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: `You are ExamPlugAI by Francistech, a helpful educational assistant for OAU students. Be concise and accurate.\n\nUser: ${message}\n\nAssistant:` }] }],
+                        generationConfig: { temperature: 0.7, maxOutputTokens: 1000 }
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (reply) break;
+                }
+            } catch (e) {
+                console.log(`Model ${model} failed:`, e.message);
+            }
+        }
+        
+        if (reply) {
+            res.json({ reply });
+        } else {
+            res.status(500).json({ error: 'AI service unavailable' });
+        }
+        
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.use('/api/', globalLimiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
