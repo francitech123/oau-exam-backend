@@ -24,23 +24,13 @@ app.use(helmet({
             connectSrc: ["'self'"],
             fontSrc: ["'self'", "https://cdnjs.cloudflare.com"],
         },
-    },
-    crossOriginEmbedderPolicy: true,
-    crossOriginOpenerPolicy: { policy: "same-origin" },
-    crossOriginResourcePolicy: { policy: "same-origin" },
-    dnsPrefetchControl: { allow: false },
-    frameguard: { action: "deny" },
-    hidePoweredBy: true,
-    hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
-    ieNoOpen: true,
-    noSniff: true,
-    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
-    xssFilter: true
+    }
 }));
 
 const allowedOrigins = [
     'https://oau-exam-frontend.vercel.app',
     'https://oau-exam-plug.vercel.app',
+    'https://all-oau-cbt-exampractice-by-francistech.edgeone.app',
     'http://localhost:5500',
     'http://localhost:3000',
     'http://127.0.0.1:5500'
@@ -57,84 +47,38 @@ app.use(cors({
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-    maxAge: 86400
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-const globalLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100, message: { error: 'Too many requests. Please try again later.' } });
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: 'Too many authentication attempts.' }, skipSuccessfulRequests: true });
-const examLimiter = rateLimit({ windowMs: 5 * 60 * 1000, max: 20, message: { error: 'Too many exam submissions. Please slow down.' } });
+// ==================== BODY PARSING ====================
+app.use(express.json({ limit: '5mb' }));
+app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
-// ==================== AI CHAT PROXY (Hides API Key) ====================
-app.post('/api/ai/chat', async (req, res) => {
-    try {
-        const { message } = req.body;
-        
-        // 🔑 YOUR GEMINI API KEY - PASTE IT HERE (only visible on Render, not in browser)
-        const GEMINI_API_KEY = 'AIzaSyAX6tHh6xOTavQhX5wIxPi_PZ7ckt2wOho';
-        
-        // Try models in order
-        const models = ['gemini-2.5-flash', 'gemini-2.5-flash-exp', 'gemini-2.0-flash'];
-        let reply = null;
-        
-        for (const model of models) {
-            try {
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: `You are ExamPlugAI by Francistech, a helpful educational assistant for OAU students. Be concise and accurate.\n\nUser: ${message}\n\nAssistant:` }] }],
-                        generationConfig: { temperature: 0.7, maxOutputTokens: 1000 }
-                    })
-                });
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                    if (reply) break;
-                }
-            } catch (e) {
-                console.log(`Model ${model} failed:`, e.message);
-            }
-        }
-        
-        if (reply) {
-            res.json({ reply });
-        } else {
-            res.status(500).json({ error: 'AI service unavailable' });
-        }
-        
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
+// Rate limiting
+const globalLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100, message: { error: 'Too many requests' } });
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: 'Too many auth attempts' } });
+const examLimiter = rateLimit({ windowMs: 5 * 60 * 1000, max: 20, message: { error: 'Too many submissions' } });
 
 app.use('/api/', globalLimiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
-app.use('/api/auth/reset-password', authLimiter);
 app.use('/api/exams/session/submit', examLimiter);
 app.use('/api/tests/session/submit', examLimiter);
 
 app.use(mongoSanitize());
 app.use(xss());
 app.use(hpp({ whitelist: ['faculty', 'department', 'level', 'courseCode', 'difficulty'] }));
-app.use(express.json({ limit: '5mb' }));
-app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
 // ==================== DATABASE CONNECTION ====================
 const connectDB = async () => {
     try {
         await mongoose.connect(process.env.MONGODB_URI, {
             useNewUrlParser: true,
-            useUnifiedTopology: true,
-            maxPoolSize: 10,
-            serverSelectionTimeoutMS: 5000,
-            socketTimeoutMS: 45000
+            useUnifiedTopology: true
         });
-        console.log('✅ MongoDB connected securely');
+        console.log('✅ MongoDB connected');
     } catch (err) {
-        console.error('❌ MongoDB connection error:', err.message);
+        console.error('❌ MongoDB error:', err.message);
         setTimeout(connectDB, 5000);
     }
 };
@@ -170,8 +114,8 @@ function decryptSensitiveData(encrypted) {
 // ==================== MODELS ====================
 const userSchema = new mongoose.Schema({
     fullName: { type: String, required: true, maxlength: 100 },
-    username: { type: String, required: true, unique: true, lowercase: true, trim: true, maxlength: 30 },
-    email: { type: String, sparse: true, lowercase: true, trim: true, maxlength: 100 },
+    username: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    email: { type: String, sparse: true, lowercase: true, trim: true },
     password: { type: String, required: true },
     faculty: { type: String, required: true, enum: FACULTIES },
     department: { type: String, required: true, maxlength: 100 },
@@ -213,8 +157,8 @@ userSchema.methods.verifySecurityAnswer = function(answer) {
 const User = mongoose.model('User', userSchema);
 
 const examQuestionSchema = new mongoose.Schema({
-    courseCode: { type: String, required: true, uppercase: true, trim: true, maxlength: 20 },
-    courseName: { type: String, maxlength: 100 },
+    courseCode: { type: String, required: true, uppercase: true, trim: true },
+    courseName: String,
     faculty: { type: String, required: true, enum: FACULTIES },
     level: { type: String, required: true },
     semester: { type: String, enum: ['first', 'second'] },
@@ -231,8 +175,8 @@ const examQuestionSchema = new mongoose.Schema({
 const ExamQuestion = mongoose.model('ExamQuestion', examQuestionSchema);
 
 const testQuestionSchema = new mongoose.Schema({
-    courseCode: { type: String, required: true, uppercase: true, trim: true, maxlength: 20 },
-    courseName: { type: String, maxlength: 100 },
+    courseCode: { type: String, required: true, uppercase: true, trim: true },
+    courseName: String,
     faculty: { type: String, required: true, enum: FACULTIES },
     level: { type: String, required: true },
     semester: { type: String, enum: ['first', 'second'] },
@@ -317,12 +261,9 @@ const authMiddleware = async (req, res, next) => {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const user = await User.findById(decoded.id).select('-password -securityAnswer');
         if (!user) return res.status(401).json({ error: 'User not found' });
-        if (user.lockedUntil && user.lockedUntil > new Date()) return res.status(403).json({ error: 'Account temporarily locked' });
-        
-        // Update last active
-        user.lastActive = new Date();
-        await user.save();
-        
+        if (user.lockedUntil && user.lockedUntil > new Date()) {
+            return res.status(403).json({ error: 'Account temporarily locked' });
+        }
         req.user = user;
         next();
     } catch (e) {
@@ -353,13 +294,16 @@ function sanitizeInput(input) {
 
 // ==================== ROUTES ====================
 
-app.get('/', (req, res) => res.json({ message: 'OAU Exam Plug API', status: 'secure', version: '6.0.0' }));
+app.get('/', (req, res) => res.json({ message: 'OAU Exam Plug API', status: 'running', version: '6.0.0' }));
 app.get('/api/health', (req, res) => res.json({ status: 'OK', timestamp: new Date().toISOString() }));
+
+// ==================== AUTH ROUTES ====================
 
 // Register
 app.post('/api/auth/register', async (req, res) => {
     try {
         const { fullName, username, email, password, faculty, department, level, securityQuestion, securityAnswer } = req.body;
+        
         const passwordError = validatePassword(password);
         if (passwordError) return res.status(400).json({ error: passwordError });
         if (!FACULTIES.includes(faculty)) return res.status(400).json({ error: 'Invalid faculty' });
@@ -393,7 +337,9 @@ app.post('/api/auth/login', async (req, res) => {
         const user = await User.findOne({ username: username.toLowerCase() });
         if (!user) return res.status(401).json({ error: 'Invalid credentials' });
         
-        if (user.lockedUntil && user.lockedUntil > new Date()) return res.status(403).json({ error: 'Account temporarily locked' });
+        if (user.lockedUntil && user.lockedUntil > new Date()) {
+            return res.status(403).json({ error: 'Account temporarily locked' });
+        }
         
         const match = await bcrypt.compare(password, user.password);
         if (!match) {
@@ -431,7 +377,7 @@ app.post('/api/auth/login', async (req, res) => {
     } catch (e) { res.status(500).json({ error: 'Login failed' }); }
 });
 
-// Reset password (forgot password)
+// Forgot Password / Reset Password
 app.post('/api/auth/reset-password', async (req, res) => {
     try {
         const { username, securityQuestion, securityAnswer, newPassword } = req.body;
@@ -463,10 +409,32 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Get courses
+// Change password
+app.post('/api/auth/change-password', authMiddleware, async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+        const passwordError = validatePassword(newPassword);
+        if (passwordError) return res.status(400).json({ error: passwordError });
+        
+        const user = await User.findById(req.user._id);
+        const match = await bcrypt.compare(currentPassword, user.password);
+        if (!match) return res.status(400).json({ error: 'Current password is incorrect' });
+        
+        user.password = await bcrypt.hash(newPassword, 14);
+        await user.save();
+        
+        res.json({ success: true, message: 'Password changed successfully' });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ==================== COURSE ROUTES ====================
+
+// Get all courses and faculties
 app.get('/api/courses', (req, res) => {
     res.json({ courses: COURSES_100, courseNames: COURSE_NAMES, faculties: FACULTIES });
 });
+
+// ==================== USER/PROFILE ROUTES ====================
 
 // Get notifications
 app.get('/api/users/notifications', authMiddleware, async (req, res) => {
@@ -483,17 +451,6 @@ app.put('/api/users/notifications/read', authMiddleware, async (req, res) => {
     try {
         await Notification.updateMany({ user: req.user._id, read: false }, { read: true });
         res.json({ success: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// Create global notification (Admin only)
-app.post('/api/admin/notifications/global', authMiddleware, adminMiddleware, async (req, res) => {
-    try {
-        const { title, message, type } = req.body;
-        const users = await User.find({}).select('_id');
-        const notifications = users.map(u => ({ user: u._id, title, message, type: type || 'global', read: false }));
-        await Notification.insertMany(notifications);
-        res.json({ success: true, count: notifications.length });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -521,23 +478,7 @@ app.put('/api/users/profile', authMiddleware, async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Change password
-app.post('/api/auth/change-password', authMiddleware, async (req, res) => {
-    try {
-        const { currentPassword, newPassword } = req.body;
-        const passwordError = validatePassword(newPassword);
-        if (passwordError) return res.status(400).json({ error: passwordError });
-        
-        const user = await User.findById(req.user._id);
-        const match = await bcrypt.compare(currentPassword, user.password);
-        if (!match) return res.status(400).json({ error: 'Current password is incorrect' });
-        
-        user.password = await bcrypt.hash(newPassword, 14);
-        await user.save();
-        
-        res.json({ success: true, message: 'Password changed successfully' });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
+// ==================== EXAM ROUTES ====================
 
 // Start exam session
 app.post('/api/exams/session/start', authMiddleware, async (req, res) => {
@@ -548,18 +489,6 @@ app.post('/api/exams/session/start', authMiddleware, async (req, res) => {
             questions = [{ text: 'Sample Question', options: ['A', 'B', 'C', 'D'], correctOption: 0, explanation: 'Sample' }];
         }
         res.json({ sessionId: crypto.randomUUID(), course: courseCode.toUpperCase(), mode: 'exam', timeLimit: 50, questions });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// Start test session
-app.post('/api/tests/session/start', authMiddleware, async (req, res) => {
-    try {
-        const { courseCode } = req.body;
-        let questions = await TestQuestion.find({ courseCode: courseCode.toUpperCase(), mode: 'test' }).limit(30);
-        if (!questions.length) {
-            questions = [{ text: 'Sample Test', options: ['A', 'B', 'C', 'D'], correctOption: 0, hint: 'Think', explanation: 'Sample' }];
-        }
-        res.json({ sessionId: crypto.randomUUID(), course: courseCode.toUpperCase(), mode: 'test', timeLimit: 40, questions });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -595,6 +524,20 @@ app.post('/api/exams/session/submit', authMiddleware, async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ==================== TEST ROUTES ====================
+
+// Start test session
+app.post('/api/tests/session/start', authMiddleware, async (req, res) => {
+    try {
+        const { courseCode } = req.body;
+        let questions = await TestQuestion.find({ courseCode: courseCode.toUpperCase(), mode: 'test' }).limit(30);
+        if (!questions.length) {
+            questions = [{ text: 'Sample Test', options: ['A', 'B', 'C', 'D'], correctOption: 0, hint: 'Think', explanation: 'Sample' }];
+        }
+        res.json({ sessionId: crypto.randomUUID(), course: courseCode.toUpperCase(), mode: 'test', timeLimit: 40, questions });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Submit test
 app.post('/api/tests/session/submit', authMiddleware, async (req, res) => {
     try {
@@ -618,36 +561,109 @@ app.post('/api/tests/session/submit', authMiddleware, async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// AI Chat
+// ==================== AI CHAT ROUTE ====================
 app.post('/api/ai/chat', authMiddleware, async (req, res) => {
     try {
         const { message } = req.body;
+        
+        if (!message) {
+            return res.status(400).json({ error: 'Message is required' });
+        }
+        
+        // 🔑 API KEY FROM RENDER ENVIRONMENT VARIABLES (COMPLETELY HIDDEN!)
+        const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+        
         const lowerMsg = message.toLowerCase();
         
-        if (lowerMsg.includes('faculty') || lowerMsg.includes('faculties')) {
-            return res.json({ reply: `OAU has 14 faculties: ${FACULTIES.join(', ')}. 100 level courses are available now!` });
-        }
-        if (lowerMsg.includes('course') || lowerMsg.includes('courses')) {
-            return res.json({ reply: '100 level courses include GST 111, GST 112, CHM 101, MTH 101, PHY 101, BIO 101, COS 101, PCY 101, and more! 200-500 level coming soon.' });
-        }
-        if (lowerMsg.includes('study') || lowerMsg.includes('tip')) {
-            return res.json({ reply: '📚 Study Tips: Use active recall, spaced repetition, take 15-min breaks every hour, and get 7-8 hours of sleep before exams!' });
-        }
-        if (lowerMsg.includes('exam') || lowerMsg.includes('test')) {
-            return res.json({ reply: 'You can take timed exams (50 min) or practice tests (40 min) with hints. Your scores are tracked on your dashboard!' });
-        }
-        if (lowerMsg.includes('streak') || lowerMsg.includes('daily')) {
-            return res.json({ reply: 'Complete at least one exam or test each day to maintain your streak. 7-day streaks earn achievements!' });
-        }
-        if (lowerMsg.includes('profile') || lowerMsg.includes('picture')) {
-            return res.json({ reply: 'You can upload a profile picture in the Profile page. Your picture syncs across all devices when you log in!' });
+        // Knowledge base - instant answers without API call
+        const knowledgeBase = {
+            'gst 111': 'GST 111 (Use of English I) is a compulsory 100-level course for all OAU students. It covers: English language proficiency, communication skills, essay writing techniques, comprehension passages, grammar, sentence structure, paragraph development, summary writing, and oral presentations.',
+            'gst 112': 'GST 112 (Use of English II) builds on GST 111 with advanced topics: critical reading, argumentative essays, report writing, public speaking, research methods, and professional communication.',
+            'chm 101': 'CHM 101 (General Chemistry I) covers: Atomic structure and periodic table, chemical bonding, stoichiometry and mole concept, gas laws, thermochemistry, chemical equilibrium, acids and bases, and introduction to organic chemistry.',
+            'mth 101': 'MTH 101 (Elementary Mathematics I) covers: Set theory, real numbers, functions and relations, polynomials, trigonometry, sequences and series, binomial theorem, and introduction to calculus.',
+            'phy 101': 'PHY 101 (General Physics I) covers: Mechanics (motion, forces, energy, momentum), waves and oscillations, thermal physics, and properties of matter.',
+            'bio 101': 'BIO 101 (General Biology I) covers: Cell structure and function, biomolecules, enzymes, cellular respiration, photosynthesis, genetics and heredity, evolution, and classification.',
+            'cos 101': 'COS 101 (Introduction to Computing) covers: History of computing, computer hardware and software, operating systems, word processing, spreadsheets, databases, internet basics, and introduction to programming.',
+            'pcy 101': 'PCY 101 (Introduction to Pharmacy) covers: History of pharmacy, pharmacy practice settings, drug nomenclature, pharmaceutical dosage forms, routes of administration, prescription handling, and professional ethics.',
+            'faculties': `OAU has 14 faculties: ${FACULTIES.join(', ')}. 100-level courses are currently available across all faculties.`,
+            'study tip': '📚 Study Tips:\n1. Active Recall: Test yourself with past questions\n2. Spaced Repetition: Review at intervals\n3. Pomodoro: 25 min study, 5 min break\n4. Practice under timed conditions\n5. Form study groups\n6. Get 7-8 hours of sleep before exams',
+            'achievement': '🏆 Achievements:\n• First Exam: Complete your first exam\n• Week Warrior: 7-day study streak\n• Excellence: Score 90% or above\n• Perfect Score: Get 100% on an exam',
+            'streak': '🔥 Your daily streak increases when you complete at least one exam or test each day. Maintain a 7-day streak to earn the "Week Warrior" achievement!',
+            'developer': '👨‍💻 OAU Exam Plug was created by Francistech (Bobola Francis Oluwanje). Contact: francistech123@gmail.com | WhatsApp: +234 701 503 2268 | Instagram: @francistech | GitHub: francitech123'
+        };
+        
+        // Check knowledge base first
+        for (const [keyword, response] of Object.entries(knowledgeBase)) {
+            if (lowerMsg.includes(keyword)) {
+                console.log('📚 Using knowledge base for:', keyword);
+                return res.json({ reply: response });
+            }
         }
         
-        res.json({ reply: "I'm ExamPlugAI by Francistech! Ask me about faculties, courses, study tips, exam strategies, or how to earn achievements." });
-    } catch (e) { res.json({ reply: "I'm here to help! Ask me anything about your studies." }); }
+        // If no API key, return helpful message
+        if (!GEMINI_API_KEY) {
+            return res.json({ 
+                reply: "I'm ExamPlugAI! Ask me about specific courses (GST 111, CHM 101, MTH 101, etc.), study tips, achievements, or OAU faculties. What would you like to know?" 
+            });
+        }
+        
+        // Try Gemini API
+        console.log('🔄 Calling Gemini API...');
+        
+        const models = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+        
+        for (const model of models) {
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'User-Agent': 'OAU-Exam-Plug-Backend/1.0'
+                    },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: `You are ExamPlugAI for OAU students. Answer concisely and helpfully: ${message}` }] }],
+                        generationConfig: { temperature: 0.7, maxOutputTokens: 300 }
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (reply) {
+                        console.log('✅ Gemini response received');
+                        return res.json({ reply });
+                    }
+                }
+            } catch (e) {
+                console.log(`Model ${model} failed:`, e.message);
+            }
+        }
+        
+        // Fallback
+        res.json({ 
+            reply: "I'm here to help! Ask me about OAU courses, study tips, or exam strategies." 
+        });
+        
+    } catch (e) {
+        console.error('❌ AI Error:', e.message);
+        res.status(500).json({ error: 'AI service unavailable' });
+    }
 });
 
 // ==================== ADMIN ROUTES ====================
+
+// Create global notification (Admin only)
+app.post('/api/admin/notifications/global', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const { title, message, type } = req.body;
+        const users = await User.find({}).select('_id');
+        const notifications = users.map(u => ({ user: u._id, title, message, type: type || 'global', read: false }));
+        await Notification.insertMany(notifications);
+        res.json({ success: true, count: notifications.length });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Add exam question (Admin only)
 app.post('/api/admin/questions/exam', authMiddleware, adminMiddleware, async (req, res) => {
     try {
         const question = await ExamQuestion.create({ ...req.body, createdBy: req.user._id });
@@ -655,6 +671,7 @@ app.post('/api/admin/questions/exam', authMiddleware, adminMiddleware, async (re
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Add test question (Admin only)
 app.post('/api/admin/questions/test', authMiddleware, adminMiddleware, async (req, res) => {
     try {
         const question = await TestQuestion.create({ ...req.body, createdBy: req.user._id });
@@ -673,5 +690,8 @@ app.use((req, res) => { res.status(404).json({ error: 'Endpoint not found' }); }
 // ==================== START SERVER ====================
 const PORT = process.env.PORT || 5000;
 connectDB().then(() => {
-    app.listen(PORT, () => console.log(`🔒 Secure server running on port ${PORT}\n📚 14 Faculties | Live Sync Active | Global Notifications Ready`));
+    app.listen(PORT, () => {
+        console.log(`🔒 Secure server running on port ${PORT}`);
+        console.log(`📚 14 Faculties | Live Sync | AI Connected`);
+    });
 });
