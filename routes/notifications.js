@@ -58,3 +58,46 @@ router.post('/global', protect, async (req, res) => {
 });
 
 module.exports = router;
+// Add this BEFORE module.exports = router;
+
+// Test notification (for development)
+router.post('/test', protect, async (req, res) => {
+    try {
+        const { title, message, type } = req.body;
+        
+        const notification = await Notification.create({
+            user: req.user._id,
+            title: title || 'Test Notification',
+            message: message || 'This is a test notification.',
+            type: type || 'info'
+        });
+        
+        res.status(201).json({ success: true, notification });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to create notification' });
+    }
+});
+
+// Create global notification (admin only)
+router.post('/global', protect, async (req, res) => {
+    try {
+        // Check if user is admin (you can set this in MongoDB)
+        if (!req.user.isAdmin) {
+            return res.status(403).json({ error: 'Admin access required' });
+        }
+        
+        const { title, message, type, link } = req.body;
+        
+        const notification = await Notification.create({
+            isGlobal: true,
+            title,
+            message,
+            type: type || 'update',
+            link
+        });
+        
+        res.status(201).json({ success: true, notification });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to create notification' });
+    }
+});
