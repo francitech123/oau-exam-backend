@@ -1,9 +1,0 @@
-version: 2
-updates:
-  - package-ecosystem: npm
-    versioning-strategy: auto
-    directory: /
-    schedule:
-      interval: daily
-    commit-message:
-      prefix: "fix"
