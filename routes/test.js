@@ -16,12 +16,15 @@ router.post('/session/start', protect, async (req, res) => {
         ]);
 
         if (questions.length === 0) {
+            // Return sample questions if none exist
             const sampleQuestions = Array(30).fill(null).map((_, i) => ({
+                _id: `sample_${i}`,
                 text: `Sample test question ${i + 1} for ${courseCode}`,
                 options: ['Option A', 'Option B', 'Option C', 'Option D'],
                 correctOption: 0,
-                hint: 'Think carefully about the concepts.'
+                hint: 'Think carefully about the core concepts.'
             }));
+            
             return res.json({
                 course: courseCode,
                 timeLimit: 40,
@@ -37,7 +40,7 @@ router.post('/session/start', protect, async (req, res) => {
                 text: q.text,
                 options: q.options,
                 correctOption: q.correctOption,
-                hint: q.hint
+                hint: q.hint || 'Think about the key concepts in this topic.'
             }))
         });
     } catch (error) {
@@ -62,6 +65,7 @@ router.post('/session/submit', protect, async (req, res) => {
         const score = Math.round((correctCount / questions.length) * 100);
         const timeSpentSec = Math.floor(timeSpent / 1000);
 
+        // Update user stats
         req.user.testsTaken += 1;
         req.user.totalStudyTime += timeSpentSec;
         req.user.scores.push({
@@ -72,8 +76,26 @@ router.post('/session/submit', protect, async (req, res) => {
             date: new Date()
         });
 
+        // Check for achievements
+        if (req.user.testsTaken === 1) {
+            req.user.achievements.push({
+                name: 'First Test',
+                description: 'Completed your first practice test!',
+                icon: '🧪'
+            });
+        }
+
+        if (score === 100) {
+            req.user.achievements.push({
+                name: 'Perfect Test',
+                description: 'Got 100% on a practice test!',
+                icon: '⭐'
+            });
+        }
+
         await req.user.save();
 
+        // Create notification
         await Notification.create({
             user: req.user._id,
             title: '🧪 Test Completed!',
