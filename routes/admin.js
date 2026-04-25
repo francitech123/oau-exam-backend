@@ -1,10 +1,12 @@
-cat > routes/admin.js << 'EOF'
 const express = require('express');
 const Question = require('../models/Question');
 const Course = require('../models/Course');
+const Notification = require('../models/Notification');
 const { protect } = require('../middleware/auth');
+
 const router = express.Router();
 
+// Get questions
 router.get('/questions/:courseCode/:mode', protect, async (req, res) => {
     try {
         const { courseCode, mode } = req.params;
@@ -15,16 +17,22 @@ router.get('/questions/:courseCode/:mode', protect, async (req, res) => {
     }
 });
 
+// Add question
 router.post('/questions', protect, async (req, res) => {
     try {
         const { courseCode, mode, text, options, correctOption, hint, explanation } = req.body;
-        const question = await Question.create({ courseCode, mode, text, options, correctOption, hint: hint || '', explanation: explanation || '', createdBy: req.user._id, isApproved: true });
+        const question = await Question.create({
+            courseCode, mode, text, options, correctOption,
+            hint: hint || '', explanation: explanation || '',
+            createdBy: req.user._id, isApproved: true
+        });
         res.status(201).json({ success: true, question });
     } catch (error) {
         res.status(500).json({ error: 'Failed to add question' });
     }
 });
 
+// Delete question
 router.delete('/questions/:id', protect, async (req, res) => {
     try {
         await Question.findByIdAndDelete(req.params.id);
@@ -34,6 +42,7 @@ router.delete('/questions/:id', protect, async (req, res) => {
     }
 });
 
+// Get courses
 router.get('/courses', protect, async (req, res) => {
     try {
         const courses = await Course.find().sort({ faculty: 1, code: 1 });
@@ -43,9 +52,10 @@ router.get('/courses', protect, async (req, res) => {
     }
 });
 
+// Seed courses
 router.post('/seed-courses', protect, async (req, res) => {
     try {
-        const courses = [
+        const allCourses = [
             { code: 'AGR 101', name: 'Intro to Agriculture', faculty: 'Agriculture', semester: 'first', level: '100' },
             { code: 'AGR 102', name: 'Crop Production', faculty: 'Agriculture', semester: 'second', level: '100' },
             { code: 'AGR 103', name: 'Soil Science', faculty: 'Agriculture', semester: 'first', level: '100' },
@@ -123,15 +133,15 @@ router.post('/seed-courses', protect, async (req, res) => {
             { code: 'GST 112', name: 'Use of English II', faculty: 'All', semester: 'second', level: '100' }
         ];
         let count = 0;
-        for (const course of courses) {
+        for (const course of allCourses) {
             await Course.findOneAndUpdate({ code: course.code }, course, { upsert: true, new: true });
             count++;
         }
-        res.json({ success: true, message: `${count} courses seeded` });
+        res.json({ success: true, message: `${count} courses seeded successfully` });
     } catch (error) {
+        console.error('Seed error:', error);
         res.status(500).json({ error: 'Failed to seed courses' });
     }
 });
 
 module.exports = router;
-EOF
