@@ -11,20 +11,19 @@ router.post('/session/start', protect, async (req, res) => {
         const { courseCode } = req.body;
         
         const questions = await Question.aggregate([
-            { $match: { courseCode, mode: 'test' } },
+            { $match: { courseCode, mode: 'test', isActive: true } },
             { $sample: { size: 30 } }
         ]);
 
         if (questions.length === 0) {
-            // Return sample questions if none exist
             const sampleQuestions = Array(30).fill(null).map((_, i) => ({
-                _id: `sample_${i}`,
+                id: `sample_test_${i}`,
                 text: `Sample test question ${i + 1} for ${courseCode}`,
                 options: ['Option A', 'Option B', 'Option C', 'Option D'],
                 correctOption: 0,
-                hint: 'Think carefully about the core concepts.'
+                hint: 'Think carefully about the concepts.',
+                explanation: 'This is a sample test question.'
             }));
-            
             return res.json({
                 course: courseCode,
                 timeLimit: 40,
@@ -40,7 +39,8 @@ router.post('/session/start', protect, async (req, res) => {
                 text: q.text,
                 options: q.options,
                 correctOption: q.correctOption,
-                hint: q.hint || 'Think about the key concepts in this topic.'
+                hint: q.hint || 'Think about the key concepts.',
+                explanation: q.explanation
             }))
         });
     } catch (error) {
@@ -54,29 +54,36 @@ router.post('/session/submit', protect, async (req, res) => {
     try {
         const { courseCode, answers, timeSpent } = req.body;
         
-        const questionIds = Object.keys(answers);
-        const questions = await Question.find({ _id: { $in: questionIds } });
-        
+        const questionIds = Object.keys(answers).filter(k => !k.startsWith('sample'));
         let correctCount = 0;
-        questions.forEach(q => {
-            if (answers[q._id] === q.correctOption) correctCount++;
-        });
+        let totalQuestions = 0;
+        
+        if (questionIds.length > 0) {
+            const questions = await Question.find({ _id: { $in: questionIds } });
+            totalQuestions = questions.length;
+            questions.forEach(q => {
+                if (answers[q._id] === q.correctOption) correctCount++;
+            });
+        } else {
+            totalQuestions = Object.keys(answers).length;
+            Object.keys(answers).forEach((key) => {
+                if (answers[key] === 0) correctCount++;
+            });
+        }
 
-        const score = Math.round((correctCount / questions.length) * 100);
+        const score = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
         const timeSpentSec = Math.floor(timeSpent / 1000);
 
-        // Update user stats
-        req.user.testsTaken += 1;
-        req.user.totalStudyTime += timeSpentSec;
+        req.user.testsTaken = (req.user.testsTaken || 0) + 1;
+        req.user.totalStudyTime = (req.user.totalStudyTime || 0) + timeSpentSec;
         req.user.scores.push({
             course: courseCode,
             score: correctCount,
-            totalQuestions: questions.length,
+            totalQuestions: totalQuestions,
             mode: 'test',
             date: new Date()
         });
 
-        // Check for achievements
         if (req.user.testsTaken === 1) {
             req.user.achievements.push({
                 name: 'First Test',
@@ -85,29 +92,16 @@ router.post('/session/submit', protect, async (req, res) => {
             });
         }
 
-        if (score === 100) {
-            req.user.achievements.push({
-                name: 'Perfect Test',
-                description: 'Got 100% on a practice test!',
-                icon: '⭐'
-            });
-        }
-
         await req.user.save();
 
-        // Create notification
         await Notification.create({
             user: req.user._id,
             title: '🧪 Test Completed!',
-            message: `You scored ${score}% in ${courseCode} test`,
+            message: `You scored ${score}% in ${courseCode} test.`,
             type: score >= 70 ? 'success' : 'info'
         });
 
-        res.json({
-            score,
-            correctCount,
-            totalQuestions: questions.length
-        });
+        res.json({ score, correctCount, totalQuestions });
     } catch (error) {
         console.error('Submit test error:', error);
         res.status(500).json({ error: 'Failed to submit test' });
