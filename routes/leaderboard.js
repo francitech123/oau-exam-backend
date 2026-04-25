@@ -5,58 +5,70 @@ const router = express.Router();
 // ==================== GET LEADERBOARD ====================
 router.get('/', async (req, res) => {
     try {
-        // Find all users who have taken at least one exam
+        console.log('📊 Fetching leaderboard...');
+        
+        // Find all users who have at least one score
         const users = await User.find({ 
-            'scores.0': { $exists: true }  // Only users with scores
+            'scores.0': { $exists: true }
         })
-        .select('fullName username faculty department level examsTaken testsTaken scores createdAt')
+        .select('fullName username faculty department level examsTaken testsTaken totalStudyTime scores createdAt')
         .lean();
+
+        console.log(`📊 Found ${users.length} users with scores`);
 
         // Calculate average score for each user
         const leaderboard = users.map(user => {
-            let avgScore = 0;
+            let totalPercentage = 0;
+            let scoreCount = 0;
             
             if (user.scores && user.scores.length > 0) {
-                // Sum all percentage scores
-                const sumOfPercentages = user.scores.reduce((sum, s) => {
-                    // Use stored percentage if available, otherwise calculate
-                    const pct = s.percentage || 
-                        (s.totalQuestions > 0 ? Math.round((s.score / s.totalQuestions) * 100) : 0);
-                    return sum + pct;
-                }, 0);
-                
-                // Calculate average
-                avgScore = Math.round(sumOfPercentages / user.scores.length);
+                user.scores.forEach(s => {
+                    // Calculate percentage for this score
+                    let pct = 0;
+                    if (s.percentage) {
+                        pct = s.percentage;
+                    } else if (s.totalQuestions > 0) {
+                        pct = Math.round((s.score / s.totalQuestions) * 100);
+                    }
+                    totalPercentage += pct;
+                    scoreCount++;
+                });
             }
+            
+            const averageScore = scoreCount > 0 ? Math.round(totalPercentage / scoreCount) : 0;
             
             // Create display name (first 2 letters + ****)
             const firstName = (user.fullName || 'User').split(' ')[0];
-            const displayName = firstName.substring(0, 2) + '****';
+            const displayName = firstName.substring(0, 2).toLowerCase() + '****';
             
             return {
                 id: user._id,
                 displayName: displayName,
                 fullName: user.fullName,
-                username: user.username,
-                faculty: user.faculty || '',
-                department: user.department || '',
+                faculty: user.faculty || 'N/A',
+                department: user.department || 'N/A',
                 level: user.level || '100',
                 examsTaken: user.examsTaken || 0,
                 testsTaken: user.testsTaken || 0,
-                averageScore: avgScore,
+                totalStudyTime: user.totalStudyTime || 0,
+                averageScore: averageScore,
                 joinedDate: user.createdAt
             };
         })
-        // Filter out users with no exams
+        // Only show users who have taken at least 1 exam
         .filter(user => user.examsTaken > 0)
         // Sort by average score (highest first)
         .sort((a, b) => b.averageScore - a.averageScore)
-        // Top 50 only
+        // Top 50
         .slice(0, 50);
 
-        console.log(`📊 Leaderboard: ${leaderboard.length} students loaded`);
+        console.log(`📊 Leaderboard: ${leaderboard.length} students ranked`);
+        if (leaderboard.length > 0) {
+            console.log(`📊 Top score: ${leaderboard[0].averageScore}% by ${leaderboard[0].displayName}`);
+        }
 
         res.json({ 
+            success: true,
             leaderboard,
             total: leaderboard.length,
             timestamp: new Date().toISOString()
@@ -64,45 +76,37 @@ router.get('/', async (req, res) => {
 
     } catch (error) {
         console.error('❌ Leaderboard error:', error);
-        res.status(500).json({ error: 'Failed to fetch leaderboard' });
+        res.status(500).json({ error: 'Failed to fetch leaderboard', message: error.message });
     }
 });
 
-// ==================== GET TOP 3 ====================
-router.get('/top', async (req, res) => {
+// ==================== GET USER RANK ====================
+router.get('/my-rank', async (req, res) => {
     try {
+        // This would need auth, but for public leaderboard we skip it
         const users = await User.find({ 'scores.0': { $exists: true } })
-            .select('fullName faculty department level examsTaken scores')
+            .select('fullName examsTaken scores')
             .lean();
 
-        const top3 = users.map(user => {
-            let avgScore = 0;
-            if (user.scores && user.scores.length > 0) {
-                const sum = user.scores.reduce((acc, s) => {
-                    const pct = s.percentage || (s.totalQuestions > 0 ? Math.round((s.score / s.totalQuestions) * 100) : 0);
-                    return acc + pct;
-                }, 0);
-                avgScore = Math.round(sum / user.scores.length);
-            }
-
-            const firstName = (user.fullName || 'User').split(' ')[0];
+        const ranked = users.map(user => {
+            let totalPct = 0, count = 0;
+            (user.scores || []).forEach(s => {
+                const pct = s.percentage || (s.totalQuestions > 0 ? Math.round((s.score / s.totalQuestions) * 100) : 0);
+                totalPct += pct; count++;
+            });
             return {
-                displayName: firstName.substring(0, 2) + '****',
-                faculty: user.faculty,
-                department: user.department,
-                level: user.level,
+                id: user._id,
+                name: user.fullName,
                 examsTaken: user.examsTaken,
-                averageScore: avgScore
+                averageScore: count > 0 ? Math.round(totalPct / count) : 0
             };
         })
         .filter(u => u.examsTaken > 0)
-        .sort((a, b) => b.averageScore - a.averageScore)
-        .slice(0, 3);
+        .sort((a, b) => b.averageScore - a.averageScore);
 
-        res.json({ top3 });
+        res.json({ totalRanked: ranked.length });
     } catch (error) {
-        console.error('❌ Top 3 error:', error);
-        res.status(500).json({ error: 'Failed to fetch top 3' });
+        res.status(500).json({ error: 'Failed to get rank' });
     }
 });
 
