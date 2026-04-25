@@ -6,70 +6,165 @@ const { protect } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Get questions
-router.get('/questions/:courseCode/:mode', protect, async (req, res) => {
+// All routes require authentication
+router.use(protect);
+
+// ==================== TEST ROUTE ====================
+router.get('/test', (req, res) => {
+    res.json({ message: 'Admin routes working!', user: req.user.fullName });
+});
+
+// ==================== QUESTION MANAGEMENT ====================
+
+// Get questions for a course
+router.get('/questions/:courseCode/:mode', async (req, res) => {
     try {
         const { courseCode, mode } = req.params;
-        const questions = await Question.find({ courseCode, mode }).sort({ createdAt: -1 });
+        const questions = await Question.find({ courseCode, mode })
+            .populate('createdBy', 'fullName')
+            .sort({ createdAt: -1 });
         res.json({ questions });
     } catch (error) {
+        console.error('Get questions error:', error);
         res.status(500).json({ error: 'Failed to fetch questions' });
     }
 });
 
-// Add question
-router.post('/questions', protect, async (req, res) => {
+// Add single question
+router.post('/questions', async (req, res) => {
     try {
-        const { courseCode, mode, text, options, correctOption, hint, explanation } = req.body;
+        const { courseCode, mode, text, options, correctOption, hint, explanation, difficulty } = req.body;
+        
+        if (!courseCode || !mode || !text || !options || correctOption === undefined) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+
         const question = await Question.create({
-            courseCode, mode, text, options, correctOption,
-            hint: hint || '', explanation: explanation || '',
-            createdBy: req.user._id, isApproved: true
+            courseCode,
+            mode,
+            text,
+            options,
+            correctOption,
+            hint: hint || '',
+            explanation: explanation || '',
+            difficulty: difficulty || 'medium',
+            createdBy: req.user._id,
+            isApproved: true,
+            isActive: true
         });
+
+        // Notify users about new question
+        await Notification.create({
+            isGlobal: true,
+            title: '📚 New Question Added',
+            message: `A new question has been added to ${courseCode} (${mode} mode). Check it out!`,
+            type: 'update'
+        });
+
         res.status(201).json({ success: true, question });
     } catch (error) {
+        console.error('Add question error:', error);
         res.status(500).json({ error: 'Failed to add question' });
     }
 });
 
+// Bulk add questions
+router.post('/questions/bulk', async (req, res) => {
+    try {
+        const { questions } = req.body;
+        
+        if (!Array.isArray(questions)) {
+            return res.status(400).json({ error: 'Questions must be an array' });
+        }
+
+        let added = 0;
+        for (const q of questions) {
+            await Question.create({
+                courseCode: q.courseCode,
+                mode: q.mode,
+                text: q.text,
+                options: q.options,
+                correctOption: q.correctOption,
+                hint: q.hint || '',
+                explanation: q.explanation || '',
+                createdBy: req.user._id,
+                isApproved: true
+            });
+            added++;
+        }
+
+        res.status(201).json({ success: true, added, total: questions.length });
+    } catch (error) {
+        console.error('Bulk add error:', error);
+        res.status(500).json({ error: 'Failed to add questions' });
+    }
+});
+
 // Delete question
-router.delete('/questions/:id', protect, async (req, res) => {
+router.delete('/questions/:id', async (req, res) => {
     try {
         await Question.findByIdAndDelete(req.params.id);
-        res.json({ success: true });
+        res.json({ success: true, message: 'Question deleted' });
     } catch (error) {
+        console.error('Delete question error:', error);
         res.status(500).json({ error: 'Failed to delete question' });
     }
 });
 
-// Get courses
-router.get('/courses', protect, async (req, res) => {
+// ==================== COURSE MANAGEMENT ====================
+
+// Get all courses
+router.get('/courses', async (req, res) => {
     try {
         const courses = await Course.find().sort({ faculty: 1, code: 1 });
         res.json({ courses });
     } catch (error) {
+        console.error('Get courses error:', error);
         res.status(500).json({ error: 'Failed to fetch courses' });
     }
 });
 
-// Seed courses
-router.post('/seed-courses', protect, async (req, res) => {
+// Update course config
+router.put('/courses/:code', async (req, res) => {
+    try {
+        const { code } = req.params;
+        const { config } = req.body;
+        
+        const course = await Course.findOneAndUpdate(
+            { code },
+            { config },
+            { new: true, upsert: true }
+        );
+        
+        res.json({ success: true, course });
+    } catch (error) {
+        console.error('Update course error:', error);
+        res.status(500).json({ error: 'Failed to update course' });
+    }
+});
+
+// ==================== SEED ALL 72 COURSES ====================
+router.post('/seed-courses', async (req, res) => {
     try {
         const allCourses = [
+            // Agriculture
             { code: 'AGR 101', name: 'Intro to Agriculture', faculty: 'Agriculture', semester: 'first', level: '100' },
             { code: 'AGR 102', name: 'Crop Production', faculty: 'Agriculture', semester: 'second', level: '100' },
             { code: 'AGR 103', name: 'Soil Science', faculty: 'Agriculture', semester: 'first', level: '100' },
             { code: 'AGR 104', name: 'Animal Husbandry', faculty: 'Agriculture', semester: 'second', level: '100' },
+            // Arts
             { code: 'ENG 101', name: 'Intro to Literature', faculty: 'Arts', semester: 'first', level: '100' },
             { code: 'ENG 102', name: 'Advanced Literature', faculty: 'Arts', semester: 'second', level: '100' },
             { code: 'PHL 101', name: 'Intro to Philosophy', faculty: 'Arts', semester: 'first', level: '100' },
             { code: 'PHL 102', name: 'Logic & Critical Thinking', faculty: 'Arts', semester: 'second', level: '100' },
             { code: 'HIS 101', name: 'History of Nigeria', faculty: 'Arts', semester: 'first', level: '100' },
             { code: 'HIS 102', name: 'World History', faculty: 'Arts', semester: 'second', level: '100' },
+            // Law
             { code: 'JIL 101', name: 'Legal Methods', faculty: 'Law', semester: 'first', level: '100' },
             { code: 'JIL 102', name: 'Constitutional Law', faculty: 'Law', semester: 'second', level: '100' },
             { code: 'PIL 101', name: 'Public Intl Law', faculty: 'Law', semester: 'first', level: '100' },
             { code: 'PIL 102', name: 'Private Intl Law', faculty: 'Law', semester: 'second', level: '100' },
+            // Science
             { code: 'BIO 101', name: 'General Biology I', faculty: 'Science', semester: 'first', level: '100' },
             { code: 'BIO 102', name: 'General Biology II', faculty: 'Science', semester: 'second', level: '100' },
             { code: 'CHM 101', name: 'General Chemistry I', faculty: 'Science', semester: 'first', level: '100' },
@@ -80,6 +175,7 @@ router.post('/seed-courses', protect, async (req, res) => {
             { code: 'PHY 102', name: 'General Physics II', faculty: 'Science', semester: 'second', level: '100' },
             { code: 'PHY 103', name: 'Physics for Life Sci I', faculty: 'Science', semester: 'first', level: '100' },
             { code: 'PHY 104', name: 'Physics for Life Sci II', faculty: 'Science', semester: 'second', level: '100' },
+            // Social Sciences
             { code: 'ECO 101', name: 'Principles of Economics', faculty: 'Social Sciences', semester: 'first', level: '100' },
             { code: 'ECO 102', name: 'Microeconomics', faculty: 'Social Sciences', semester: 'second', level: '100' },
             { code: 'POL 101', name: 'Intro to Politics', faculty: 'Social Sciences', semester: 'first', level: '100' },
@@ -88,59 +184,156 @@ router.post('/seed-courses', protect, async (req, res) => {
             { code: 'SOC 102', name: 'Social Institutions', faculty: 'Social Sciences', semester: 'second', level: '100' },
             { code: 'PSY 101', name: 'Intro to Psychology', faculty: 'Social Sciences', semester: 'first', level: '100' },
             { code: 'PSY 102', name: 'Developmental Psych', faculty: 'Social Sciences', semester: 'second', level: '100' },
+            // Education
             { code: 'EDU 101', name: 'Foundations of Education', faculty: 'Education', semester: 'first', level: '100' },
             { code: 'EDU 102', name: 'Educational Psychology', faculty: 'Education', semester: 'second', level: '100' },
             { code: 'EDC 101', name: 'Curriculum Studies', faculty: 'Education', semester: 'first', level: '100' },
             { code: 'EDC 102', name: 'Instructional Methods', faculty: 'Education', semester: 'second', level: '100' },
             { code: 'EDP 101', name: 'Educational Planning', faculty: 'Education', semester: 'first', level: '100' },
             { code: 'EDP 102', name: 'Educational Admin', faculty: 'Education', semester: 'second', level: '100' },
+            // Pharmacy
             { code: 'PCY 101', name: 'Intro to Pharmacy', faculty: 'Pharmacy', semester: 'first', level: '100' },
             { code: 'PCY 102', name: 'Pharmacy Practice', faculty: 'Pharmacy', semester: 'second', level: '100' },
+            // Technology
             { code: 'GET 101', name: 'Engineering Drawing I', faculty: 'Technology', semester: 'first', level: '100' },
             { code: 'GET 102', name: 'Engineering Drawing II', faculty: 'Technology', semester: 'second', level: '100' },
+            // Administration
             { code: 'BUS 101', name: 'Intro to Business', faculty: 'Administration', semester: 'first', level: '100' },
             { code: 'BUS 102', name: 'Business Environment', faculty: 'Administration', semester: 'second', level: '100' },
             { code: 'ACC 101', name: 'Principles of Accounting', faculty: 'Administration', semester: 'first', level: '100' },
             { code: 'ACC 102', name: 'Financial Accounting', faculty: 'Administration', semester: 'second', level: '100' },
+            // Environmental Design
             { code: 'ARC 101', name: 'Architectural Design', faculty: 'Environmental Design and Management', semester: 'first', level: '100' },
             { code: 'ARC 102', name: 'Building Technology', faculty: 'Environmental Design and Management', semester: 'second', level: '100' },
             { code: 'URP 101', name: 'Urban Planning', faculty: 'Environmental Design and Management', semester: 'first', level: '100' },
             { code: 'URP 102', name: 'Regional Planning', faculty: 'Environmental Design and Management', semester: 'second', level: '100' },
             { code: 'QSV 101', name: 'Quantity Surveying', faculty: 'Environmental Design and Management', semester: 'first', level: '100' },
             { code: 'QSV 102', name: 'Construction Technology', faculty: 'Environmental Design and Management', semester: 'second', level: '100' },
+            // Basic Medical Sciences
             { code: 'ANA 101', name: 'Human Anatomy', faculty: 'Basic Medical Sciences', semester: 'first', level: '100' },
             { code: 'ANA 102', name: 'Gross Anatomy', faculty: 'Basic Medical Sciences', semester: 'second', level: '100' },
             { code: 'PHS 101', name: 'Physiology', faculty: 'Basic Medical Sciences', semester: 'first', level: '100' },
             { code: 'PHS 102', name: 'Systems Physiology', faculty: 'Basic Medical Sciences', semester: 'second', level: '100' },
             { code: 'BCH 101', name: 'Biochemistry', faculty: 'Basic Medical Sciences', semester: 'first', level: '100' },
             { code: 'BCH 102', name: 'Metabolism', faculty: 'Basic Medical Sciences', semester: 'second', level: '100' },
+            // Clinical Sciences
             { code: 'MED 101', name: 'Intro to Medicine', faculty: 'Clinical Sciences', semester: 'first', level: '100' },
             { code: 'MED 102', name: 'Clinical Methods', faculty: 'Clinical Sciences', semester: 'second', level: '100' },
             { code: 'SUR 101', name: 'Principles of Surgery', faculty: 'Clinical Sciences', semester: 'first', level: '100' },
             { code: 'SUR 102', name: 'Surgical Techniques', faculty: 'Clinical Sciences', semester: 'second', level: '100' },
             { code: 'OBS 101', name: 'Obstetrics', faculty: 'Clinical Sciences', semester: 'first', level: '100' },
             { code: 'OBS 102', name: 'Gynecology', faculty: 'Clinical Sciences', semester: 'second', level: '100' },
+            // Dentistry
             { code: 'DEN 101', name: 'Dental Anatomy', faculty: 'Dentistry', semester: 'first', level: '100' },
             { code: 'DEN 102', name: 'Oral Biology', faculty: 'Dentistry', semester: 'second', level: '100' },
             { code: 'ORA 101', name: 'Oral Health', faculty: 'Dentistry', semester: 'first', level: '100' },
             { code: 'ORA 102', name: 'Preventive Dentistry', faculty: 'Dentistry', semester: 'second', level: '100' },
+            // Computing
             { code: 'COS 101', name: 'Intro to Computing', faculty: 'Computing', semester: 'first', level: '100' },
             { code: 'COS 102', name: 'Programming Fundamentals', faculty: 'Computing', semester: 'second', level: '100' },
             { code: 'STA 111', name: 'Intro to Statistics I', faculty: 'Computing', semester: 'first', level: '100' },
             { code: 'STA 112', name: 'Intro to Statistics II', faculty: 'Computing', semester: 'second', level: '100' },
             { code: 'STA 121', name: 'Statistical Methods I', faculty: 'Computing', semester: 'first', level: '100' },
+            // GST (All Faculties)
             { code: 'GST 111', name: 'Use of English I', faculty: 'All', semester: 'first', level: '100' },
             { code: 'GST 112', name: 'Use of English II', faculty: 'All', semester: 'second', level: '100' }
         ];
+
         let count = 0;
         for (const course of allCourses) {
-            await Course.findOneAndUpdate({ code: course.code }, course, { upsert: true, new: true });
+            await Course.findOneAndUpdate(
+                { code: course.code },
+                course,
+                { upsert: true, new: true }
+            );
             count++;
         }
-        res.json({ success: true, message: `${count} courses seeded successfully` });
+
+        res.json({ 
+            success: true, 
+            message: `${count} courses seeded successfully`,
+            timestamp: new Date().toISOString()
+        });
     } catch (error) {
-        console.error('Seed error:', error);
+        console.error('Seed courses error:', error);
         res.status(500).json({ error: 'Failed to seed courses' });
+    }
+});
+
+// ==================== NOTIFICATION MANAGEMENT ====================
+
+// Send test notification to self
+router.post('/notifications/test', async (req, res) => {
+    try {
+        const { title, message, type } = req.body;
+        
+        const notification = await Notification.create({
+            user: req.user._id,
+            title: title || 'Test Notification',
+            message: message || 'This is a test notification.',
+            type: type || 'info'
+        });
+
+        res.status(201).json({ success: true, notification });
+    } catch (error) {
+        console.error('Test notification error:', error);
+        res.status(500).json({ error: 'Failed to send notification' });
+    }
+});
+
+// Send global notification to all users
+router.post('/notifications/global', async (req, res) => {
+    try {
+        const { title, message, type, link } = req.body;
+        
+        const notification = await Notification.create({
+            isGlobal: true,
+            title: title || 'Announcement',
+            message: message || 'New update available!',
+            type: type || 'update',
+            link
+        });
+
+        res.status(201).json({ 
+            success: true, 
+            message: 'Global notification sent to all users',
+            notification 
+        });
+    } catch (error) {
+        console.error('Global notification error:', error);
+        res.status(500).json({ error: 'Failed to send notification' });
+    }
+});
+
+// ==================== USER MANAGEMENT ====================
+router.get('/users', async (req, res) => {
+    try {
+        const users = await require('../models/User').find()
+            .select('-password -securityAnswer')
+            .sort({ createdAt: -1 });
+        res.json({ users });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch users' });
+    }
+});
+
+// ==================== STATS ====================
+router.get('/stats', async (req, res) => {
+    try {
+        const User = require('../models/User');
+        const totalUsers = await User.countDocuments();
+        const totalQuestions = await Question.countDocuments();
+        const totalCourses = await Course.countDocuments();
+        const totalNotifications = await Notification.countDocuments();
+        
+        res.json({
+            totalUsers,
+            totalQuestions,
+            totalCourses,
+            totalNotifications
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch stats' });
     }
 });
 
