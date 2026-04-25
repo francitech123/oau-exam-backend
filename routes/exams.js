@@ -6,33 +6,23 @@ const { protect } = require('../middleware/auth');
 
 const router = express.Router();
 
-// ==================== START EXAM SESSION ====================
 router.post('/session/start', protect, async (req, res) => {
     try {
         const { courseCode } = req.body;
-        console.log('📝 Starting exam for:', courseCode);
-        
         const questions = await Question.aggregate([
             { $match: { courseCode, mode: 'exam', isActive: true } },
             { $sample: { size: 40 } }
         ]);
-
         if (questions.length === 0) {
-            const sampleQuestions = Array(40).fill(null).map((_, i) => ({
+            const sample = Array(40).fill(null).map((_, i) => ({
                 _id: `sample_${i}`,
                 text: `Sample question ${i + 1} for ${courseCode}`,
                 options: ['Option A', 'Option B', 'Option C', 'Option D'],
                 correctOption: 0,
-                explanation: 'This is a sample question. Real questions coming soon!'
+                explanation: 'Real questions coming soon!'
             }));
-            
-            return res.json({
-                course: courseCode,
-                timeLimit: 50,
-                questions: sampleQuestions
-            });
+            return res.json({ course: courseCode, timeLimit: 50, questions: sample });
         }
-
         res.json({
             course: courseCode,
             timeLimit: 50,
@@ -45,68 +35,54 @@ router.post('/session/start', protect, async (req, res) => {
             }))
         });
     } catch (error) {
-        console.error('❌ Start exam error:', error);
         res.status(500).json({ error: 'Failed to start exam' });
     }
 });
 
-// ==================== SUBMIT EXAM SESSION ====================
 router.post('/session/submit', protect, async (req, res) => {
     try {
         const { courseCode, answers, timeSpent } = req.body;
         
-        console.log('📩 Submit received:', { 
-            courseCode, 
-            answersCount: answers ? Object.keys(answers).length : 0,
-            timeSpent 
-        });
+        console.log('SUBMIT RECEIVED:', JSON.stringify({ courseCode, answerCount: answers ? Object.keys(answers).length : 0, timeSpent }));
         
         const user = await User.findById(req.user._id);
-        if (!user) {
-            return res.status(404).json({ error: 'User not found' });
-        }
+        if (!user) return res.status(404).json({ error: 'User not found' });
         
         const timeSpentSec = Math.floor((timeSpent || 0) / 1000);
         
-        // ==================== CALCULATE REAL SCORE ====================
+        // Always update these regardless of score calculation
+        user.examsTaken = (user.examsTaken || 0) + 1;
+        user.totalStudyTime = (user.totalStudyTime || 0) + timeSpentSec;
+        
+        // Calculate score
         let correctCount = 0;
-        let totalQuestions = 0;
+        let totalQuestions = 40; // Default
         
         if (answers && Object.keys(answers).length > 0) {
             totalQuestions = Object.keys(answers).length;
             
-            // Try to find matching questions in DB
-            const questions = await Question.find({ 
-                courseCode: courseCode,
-                mode: 'exam' 
-            }).limit(totalQuestions);
-            
-            if (questions.length > 0) {
-                // Match answers by index
-                questions.forEach((q, i) => {
-                    if (answers[i] !== undefined && answers[i] === q.correctOption) {
-                        correctCount++;
-                    }
-                });
-                totalQuestions = questions.length;
-                console.log('📊 Matched with DB questions:', { correctCount, totalQuestions });
-            } else {
-                // No questions in DB - check sample questions
-                // Sample questions have correctOption: 0 as default
-                Object.keys(answers).forEach(key => {
-                    if (answers[key] === 0) correctCount++;
-                });
-                console.log('📊 Using sample questions:', { correctCount, totalQuestions });
+            try {
+                const questions = await Question.find({ courseCode, mode: 'exam' }).limit(totalQuestions);
+                
+                if (questions.length > 0) {
+                    questions.forEach((q, i) => {
+                        if (answers[i] !== undefined && answers[i] !== null && answers[i] === q.correctOption) {
+                            correctCount++;
+                        }
+                    });
+                    totalQuestions = questions.length;
+                }
+            } catch(e) {
+                console.log('Question lookup failed, using default');
             }
         }
         
         const score = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
         
-        console.log('📊 Final score:', { correctCount, totalQuestions, score });
+        console.log('SCORE:', { correctCount, totalQuestions, score });
         
-        // ==================== UPDATE USER ====================
-        user.examsTaken = (user.examsTaken || 0) + 1;
-        user.totalStudyTime = (user.totalStudyTime || 0) + timeSpentSec;
+        // Add to scores array
+        if (!user.scores) user.scores = [];
         user.scores.push({
             course: courseCode || 'Unknown',
             score: correctCount,
@@ -115,67 +91,41 @@ router.post('/session/submit', protect, async (req, res) => {
             date: new Date()
         });
         
-        // Update streak
+        // Streak
         const today = new Date().toDateString();
-        const lastActive = user.lastActive ? user.lastActive.toDateString() : null;
-        
-        if (lastActive !== today) {
+        const lastStr = user.lastActive ? new Date(user.lastActive).toDateString() : null;
+        if (lastStr !== today) {
             const yesterday = new Date();
             yesterday.setDate(yesterday.getDate() - 1);
-            
-            if (lastActive === yesterday.toDateString()) {
+            if (lastStr === yesterday.toDateString()) {
                 user.currentStreak = (user.currentStreak || 0) + 1;
-                if (user.currentStreak > (user.longestStreak || 0)) {
-                    user.longestStreak = user.currentStreak;
-                }
+                if (user.currentStreak > (user.longestStreak || 0)) user.longestStreak = user.currentStreak;
             } else {
                 user.currentStreak = 1;
             }
             user.lastActive = new Date();
         }
         
-        // Check achievements
-        if (user.examsTaken === 1) {
-            user.achievements.push({
-                name: 'First Exam',
-                description: 'Completed your first exam!',
-                icon: '🎯',
-                dateEarned: new Date()
-            });
-        }
-        if (score === 100 && totalQuestions > 0) {
-            user.achievements.push({
-                name: 'Perfect Score',
-                description: 'Got 100% on an exam!',
-                icon: '🏆',
-                dateEarned: new Date()
-            });
-        }
-        
         await user.save();
-        console.log('✅ User updated:', { examsTaken: user.examsTaken, totalStudyTime: user.totalStudyTime });
+        console.log('USER SAVED - examsTaken:', user.examsTaken);
         
-        // ==================== CREATE NOTIFICATION ====================
-        await Notification.create({
-            user: user._id,
-            title: '📝 Exam Completed!',
-            message: `You scored ${score}% in ${courseCode || 'exam'}. ${correctCount}/${totalQuestions} correct.`,
-            type: score >= 70 ? 'success' : score >= 50 ? 'info' : 'warning'
-        });
+        // Notification
+        try {
+            await Notification.create({
+                user: user._id,
+                title: '📝 Exam Completed!',
+                message: `You scored ${score}% in ${courseCode || 'exam'}. ${correctCount}/${totalQuestions} correct.`,
+                type: score >= 70 ? 'success' : score >= 50 ? 'info' : 'warning'
+            });
+        } catch(e) {
+            console.log('Notification failed:', e.message);
+        }
         
-        console.log('✅ Notification created');
-        
-        res.json({
-            success: true,
-            score: score,
-            correctCount: correctCount,
-            totalQuestions: totalQuestions,
-            message: 'Exam submitted successfully!'
-        });
+        res.json({ success: true, score, correctCount, totalQuestions });
         
     } catch (error) {
-        console.error('❌ Submit error:', error);
-        res.status(500).json({ error: 'Failed to submit exam', message: error.message });
+        console.error('SUBMIT ERROR:', error.message);
+        res.status(500).json({ error: error.message });
     }
 });
 
