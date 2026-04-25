@@ -5,7 +5,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
-// Import all routes - ALL LOWERCASE
+// Import all routes
 const authRoutes = require('./routes/auth');
 const examRoutes = require('./routes/exams');
 const testRoutes = require('./routes/tests');
@@ -49,7 +49,7 @@ app.use(cors({
 
 // Rate limiting
 const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
+    windowMs: 15 * 60 * 1000, // 15 minutes
     max: 200,
     message: { error: 'Too many requests, please try again later.' }
 });
@@ -77,19 +77,14 @@ app.get('/api/health', (req, res) => {
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
         database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-        version: '2.0.0'
-    });
-});
-
-// ==================== ROOT ROUTE ====================
-app.get('/', (req, res) => {
-    res.json({
-        name: 'OAU Exam Plug API',
         version: '2.0.0',
         endpoints: [
             '/api/auth/login',
             '/api/auth/register',
             '/api/auth/me',
+            '/api/auth/forgot-password',
+            '/api/auth/reset-password',
+            '/api/auth/change-password',
             '/api/exams/session/start',
             '/api/exams/session/submit',
             '/api/tests/session/start',
@@ -100,18 +95,33 @@ app.get('/', (req, res) => {
             '/api/notifications',
             '/api/notifications/read',
             '/api/leaderboard',
+            '/api/leaderboard/top',
             '/api/comments',
             '/api/admin/questions',
             '/api/admin/courses',
             '/api/admin/seed-courses',
-            '/api/health'
+            '/api/admin/stats'
         ]
+    });
+});
+
+// ==================== ROOT ROUTE ====================
+app.get('/', (req, res) => {
+    res.json({
+        name: 'OAU Exam Plug API',
+        version: '2.0.0',
+        description: 'Backend API for OAU Exam Plug - Premium CBT Practice Platform',
+        docs: 'https://oau-exam-plug.vercel.app',
+        health: '/api/health'
     });
 });
 
 // ==================== 404 HANDLER ====================
 app.use('*', (req, res) => {
-    res.status(404).json({ error: 'Route not found' });
+    res.status(404).json({ 
+        error: 'Route not found',
+        path: req.originalUrl 
+    });
 });
 
 // ==================== ERROR HANDLER ====================
@@ -131,7 +141,7 @@ const connectDB = async () => {
             serverSelectionTimeoutMS: 5000,
             socketTimeoutMS: 45000
         });
-        console.log('✅ MongoDB connected');
+        console.log('✅ MongoDB connected successfully');
     } catch (error) {
         console.error('❌ MongoDB connection error:', error.message);
         process.exit(1);
@@ -146,21 +156,32 @@ connectDB().then(() => {
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log(`🚀 OAU Exam Plug API v2.0`);
         console.log(`📡 Port: ${PORT}`);
+        console.log(`🌍 Environment: ${process.env.NODE_ENV || 'production'}`);
         console.log(`🔗 Health: http://localhost:${PORT}/api/health`);
+        console.log(`📊 Leaderboard: http://localhost:${PORT}/api/leaderboard`);
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     });
 });
 
+// ==================== GRACEFUL SHUTDOWN ====================
 process.on('SIGTERM', async () => {
-    console.log('SIGTERM received. Closing...');
+    console.log('SIGTERM received. Closing gracefully...');
     await mongoose.connection.close();
+    console.log('MongoDB connection closed');
     process.exit(0);
 });
 
 process.on('SIGINT', async () => {
-    console.log('SIGINT received. Closing...');
+    console.log('SIGINT received. Closing gracefully...');
     await mongoose.connection.close();
+    console.log('MongoDB connection closed');
     process.exit(0);
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (err) => {
+    console.error('❌ Unhandled Rejection:', err.message);
+    // Don't crash the server, just log it
 });
 
 module.exports = app;
