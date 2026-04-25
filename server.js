@@ -5,7 +5,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
-// Import all routes
+// Import all routes - ALL LOWERCASE
 const authRoutes = require('./routes/auth');
 const examRoutes = require('./routes/exams');
 const testRoutes = require('./routes/tests');
@@ -77,6 +77,14 @@ app.get('/api/health', (req, res) => {
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
         database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+        version: '2.0.0'
+    });
+});
+
+// ==================== ROOT ROUTE ====================
+app.get('/', (req, res) => {
+    res.json({
+        name: 'OAU Exam Plug API',
         version: '2.0.0',
         endpoints: [
             '/api/auth/login',
@@ -88,10 +96,15 @@ app.get('/api/health', (req, res) => {
             '/api/tests/session/submit',
             '/api/users/stats',
             '/api/users/profile',
+            '/api/ai/chat',
             '/api/notifications',
+            '/api/notifications/read',
             '/api/leaderboard',
             '/api/comments',
-            '/api/admin/questions'
+            '/api/admin/questions',
+            '/api/admin/courses',
+            '/api/admin/seed-courses',
+            '/api/health'
         ]
     });
 });
@@ -118,7 +131,7 @@ const connectDB = async () => {
             serverSelectionTimeoutMS: 5000,
             socketTimeoutMS: 45000
         });
-        console.log('✅ MongoDB connected successfully');
+        console.log('✅ MongoDB connected');
     } catch (error) {
         console.error('❌ MongoDB connection error:', error.message);
         process.exit(1);
@@ -133,13 +146,11 @@ connectDB().then(() => {
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log(`🚀 OAU Exam Plug API v2.0`);
         console.log(`📡 Port: ${PORT}`);
-        console.log(`🌍 Environment: ${process.env.NODE_ENV || 'production'}`);
         console.log(`🔗 Health: http://localhost:${PORT}/api/health`);
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     });
 });
 
-// ==================== GRACEFUL SHUTDOWN ====================
 process.on('SIGTERM', async () => {
     console.log('SIGTERM received. Closing...');
     await mongoose.connection.close();
