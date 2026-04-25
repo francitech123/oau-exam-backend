@@ -5,51 +5,50 @@ const { protect } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Update profile
+router.get('/stats', protect, async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id).select('examsTaken testsTaken totalStudyTime currentStreak longestStreak scores achievements');
+        
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        
+        // Calculate average score
+        let averageScore = 0;
+        if (user.scores && user.scores.length > 0) {
+            const total = user.scores.reduce((sum, s) => {
+                return sum + (s.totalQuestions > 0 ? Math.round((s.score / s.totalQuestions) * 100) : 0);
+            }, 0);
+            averageScore = Math.round(total / user.scores.length);
+        }
+        
+        res.json({
+            examsTaken: user.examsTaken || 0,
+            testsTaken: user.testsTaken || 0,
+            totalStudyTime: user.totalStudyTime || 0,
+            currentStreak: user.currentStreak || 0,
+            longestStreak: user.longestStreak || 0,
+            averageScore: averageScore,
+            scores: user.scores || [],
+            achievements: user.achievements || []
+        });
+        
+    } catch (error) {
+        console.error('Stats error:', error);
+        res.status(500).json({ error: 'Failed to fetch stats' });
+    }
+});
+
 router.put('/profile', protect, async (req, res) => {
     try {
         const { fullName, faculty, department, level, profilePicture } = req.body;
-        
         if (fullName) req.user.fullName = fullName;
         if (faculty) req.user.faculty = faculty;
         if (department) req.user.department = department;
         if (level) req.user.level = level;
         if (profilePicture) req.user.profilePicture = profilePicture;
-        
         await req.user.save();
-
-        res.json({
-            success: true,
-            user: {
-                fullName: req.user.fullName,
-                faculty: req.user.faculty,
-                department: req.user.department,
-                level: req.user.level,
-                profilePicture: req.user.profilePicture
-            }
-        });
+        res.json({ success: true, user: req.user });
     } catch (error) {
-        console.error('Update profile error:', error);
         res.status(500).json({ error: 'Failed to update profile' });
-    }
-});
-
-// Get user stats
-router.get('/stats', protect, async (req, res) => {
-    try {
-        const averageScore = req.user.getAverageScore();
-        
-        res.json({
-            examsTaken: req.user.examsTaken,
-            testsTaken: req.user.testsTaken,
-            totalStudyTime: req.user.totalStudyTime,
-            currentStreak: req.user.currentStreak,
-            longestStreak: req.user.longestStreak,
-            averageScore,
-            achievements: req.user.achievements
-        });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to fetch stats' });
     }
 });
 
